@@ -1,0 +1,133 @@
+## 2025-11-15
+
+Stereo and mono, plus two 16 bit samples?
+
+>>> (77216 - 0x200 + 8) / 4
+19178.0
+>>> (2977372 - 0x200 + 4) / 2
+1488432.0
+
+## 2025-11-14 - hunt for the sample size
+
+0x00000000 52 46 57 56 is the header, "RFWV"
+0x00000004 sample size (raw)
+0x00000008 bitrate? 480000
+0x0000000c channels - mono: 0x00000001, stereo: 0x00000002
+
+The SP404 stores mono in SMP if the original sample is mono.
+
+sample length: (((sample size) - 0x200) / (2 * channels)) + 4 (if channels = 1), + 2 (if channels = 2)
+
+Verified in SP404 app
+
+>>> ((77216 - 0x200) / 4) + 2
+19178.0
+>>> ((71032 - 0x200) / 4) + 2
+17632.0
+>>> (2977372 - 0x200) / 2
+1488430.0
+>>> (2977372 - 0x200) / 2 + 2
+1488432.0
+>>> ((2977372 - 0x200) / 2) + 2
+1488432.0
+>>> ((2977372 - 0x200) / 2) + 4
+1488434.0
+>>>
+
+## 2025-11-10 SML big endian to little endian 16 bit conversion (gemini)
+
+This script assumes a single-channel (mono) audio track with a 44100 Hz sample rate. You can adjust these parameters as needed.
+
+import numpy as np
+import wave
+import os
+
+def convert_raw_be16_to_wav(input_file, output_file, sample_rate=44100, n_channels=1):
+    """
+    Converts a raw 16-bit big-endian PCM audio file to a standard WAV file.
+
+    Args:
+        input_file (str): Path to the input raw audio file (16-bit big-endian).
+        output_file (str): Path for the output WAV file.
+        sample_rate (int): The sample rate of the audio data (e.g., 44100 Hz).
+        n_channels (int): The number of audio channels (e.g., 1 for mono, 2 for stereo).
+    """
+    try:
+        # 1. Read the raw binary data
+        with open(input_file, 'rb') as f:
+            raw_data = f.read()
+
+        # 2. Convert raw bytes to a NumPy array of 16-bit integers
+        # 'S' is used to tell numpy that the input data is a byte string (raw_data)
+        # dtype='>i2' specifies:
+        #   '>'  for big-endian byte order (the source format)
+        #   'i2' for 16-bit signed integer (2 bytes)
+        audio_array = np.frombuffer(raw_data, dtype='>i2')
+
+        # 3. Perform byte-swap (Big-Endian to Little-Endian)
+        # WAV files typically use little-endian byte order.
+        # The .newbyteorder('<') method converts it in-place to little-endian ('<').
+        # Using a copy to ensure the byte order change is applied correctly for the next step.
+        little_endian_audio = audio_array.newbyteorder('<').copy()
+
+        # 4. Convert the NumPy array back to bytes for the WAV file
+        wav_frames = little_endian_audio.tobytes()
+
+        # 5. Write the WAV file with the proper header
+        with wave.open(output_file, 'wb') as wf:
+            wf.setnchannels(n_channels)
+            # The sample width is 2 bytes for 16-bit audio
+            wf.setsampwidth(2)
+            wf.setframerate(sample_rate)
+            # Write the byte-swapped data
+            wf.writeframes(wav_frames)
+
+        print(f"Successfully converted '{input_file}' to '{output_file}'.")
+
+    except FileNotFoundError:
+        print(f"Error: Input file '{input_file}' not found.")
+    except Exception as e:
+        print(f"An error occurred during conversion: {e}")
+
+# --- Configuration ---
+RAW_FILE_NAME = 'raw_audio.dat'  # **Change this to your input file name**
+WAV_FILE_NAME = 'output_audio.wav'
+SAMPLE_RATE = 44100              # **Set the correct sample rate for your data**
+CHANNELS = 1                     # **Set 1 for mono, 2 for stereo, etc.**
+# ---------------------
+
+# --- Example Usage (You might need to create a dummy file for testing) ---
+# If you don't have a raw file, uncomment the following section to create a small one:
+"""
+# Create a dummy 16-bit big-endian file for demonstration
+if not os.path.exists(RAW_FILE_NAME):
+    print(f"Creating a dummy file: {RAW_FILE_NAME}")
+    # Sample data: sine wave. Note the use of big-endian dtype '>i2'
+    t = np.linspace(0, 1, SAMPLE_RATE, endpoint=False)
+    amplitude = np.iinfo(np.int16).max - 1000 # Max signed 16-bit value
+    dummy_data = (amplitude * np.sin(2 * np.pi * 440 * t)).astype('>i2')
+    dummy_data.tofile(RAW_FILE_NAME)
+    print("Dummy file created. Running conversion...")
+"""
+
+# Run the conversion
+convert_raw_be16_to_wav(RAW_FILE_NAME, WAV_FILE_NAME, SAMPLE_RATE, CHANNELS)
+⚙️ Key Concepts Explained
+numpy.frombuffer(raw_data, dtype='>i2'):
+This is the critical step for reading your raw data.
+raw_data: The raw bytes read from your file.
+dtype='>i2': This tells NumPy how to interpret the bytes:
+>: Specifies Big-Endian byte order (your source format).
+i2: Specifies a 16-bit (2-byte) signed integer.
+.newbyteorder('<').copy():
+WAV files (specifically the PCM data chunk) standardly use Little-Endian byte order.
+The newbyteorder('<') method efficiently creates a view of the array data with the byte order swapped to Little-Endian (<).
+.copy() is used to ensure we have a contiguous block of memory with the correct byte order before converting back to bytes.
+wave Module:
+This built-in Python package handles the complexities of generating the correct WAV header (RIFF, fmt, and data chunks).
+wf.setsampwidth(2): Sets the bit depth to 16-bit (2 bytes).
+wf.setframerate(SAMPLE_RATE): Sets the crucial sampling frequency.
+wf.writeframes(wav_frames): Writes the final, little-endian audio data along with the calculated header.
+If you don't know the exact sample rate or channel count of your raw data, you will need to determine those parameters before running the script, as the WAV header must contain that information.
+
+Would you like me to adapt this script for stereo (2-channel) audio, assuming the samples are interleaved (Left, Right, Left, Right, ...)?

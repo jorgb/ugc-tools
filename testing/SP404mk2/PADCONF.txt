@@ -1,0 +1,55 @@
+## 2025-11-08 
+
+Sample names start at 0x6C20
+
+Right behind the file names in PADCONF.BIN, there are the 16 chop markers of the sample that is not yet chopped up!
+At location 0x7B20 every non 0xFFFFFFFF is a chop marker for the pad! There are 16 times 0xFFFFFFFF that means it is per bank.
+
+## 2025-11-07 rolls, poly, chop points
+
+x 0x28 : 0001 0001 (poly, fixed velocity)
+       0000 1001 (legato, fixed velocity)
+       0000 0000 (mono, fixed velocity)
+
+B01 - 2 markers + start point
+B02 - 1 marker + start point (one deleted)
+B03 - 4 grid markers (auto mark)
+B04 - 16 grid markers (auto mark)
+
+## 2025-11-06 rolls, poly
+
+A13 - Regular, Legato
+A14 - Regular, Poly
+
+? A10 - Regular, Roll Off (1/4 is default)
+? A11 - Regular, Roll 1/16
+? A12 - Regular, Roll 3/8
+
+## 2025-11-05 fixed velocity, loop, linking and muting, bus fx
+
+x A01 - Regular, Gate-On, Fixed Velocity
+x A02 - Regular, Gate-On, Loop On
+x A03 - Regular, Mute Group A
+x A04 - Regular, Mute Group B
+x A05 - Regular, Pad Link to A
+x A06 - Regular, Pad Link to J
+x A08 - Regular, Bus FX DRY (Default is BUS 1)
+x A09 - Regular, Bus FX Bus 2
+
+## 2025-11-04 regular sample, simple play toggles
+
+x A01 - Regular, Gate On
+x A02 - Regular, Reverse
+x A03 - Regular, One Shot (Gate Off)
+x A04 - Regular, One Shot Reverse
+x A05 - Regular, Gate On, Fwd-Ping Pong
+x A06 - Regular, Gate On, Rev-Ping Pong
+
+
+
+
+
+
+
+
+
