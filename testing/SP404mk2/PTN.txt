@@ -1,0 +1,24 @@
+### Findings
+
+#### TODO
+
+- What happens if I nudge an event with microscope?
+- What if multiple steps are on one pattern?
+  - Make one pattern with A01 playing and B01 playing
+  - Make one pattern with A01 and F01 playing (A/F are the same button)
+- Pad event decoding, what bits are for what pad?
+  - Make one pattern with A01 on step 1
+  - Make one pattern with A02 on step 1
+  - Make one pattern with A05 ..
+  - Make one pattern with A09 ..
+  - Make one pattern with A13 ..
+  - Make one pattern with B01 .. etc
+
+#### pad-sequencer/2026-04-08
+
+Kick is on A01, no other samples
+
+- A01 = One kick A01, A05, A09, A13 in TR-REC mode, 90 bpm, pitch chrom +0. vel 90, shuffle 0,
+    - 1 bar gate setting is ignored on the steps, it can be toggled independently
+- A02 = One kick, PAD velocity A01, A05, A09, A13
+- A03 = One kick, Pitch Chromatic -6 A01, A05, A09, A13

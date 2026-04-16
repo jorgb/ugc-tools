@@ -1,8 +1,0 @@
-### Findings
-
-Kick is on A01, no other samples
-
-- A01 = One kick A01, A05, A09, A13 in TR-REC mode, 90 bpm, pitch chrom +0. vel 90, shuffle 0, 1 bar
-Gate setting is ignored on the steps, it can be toggled independently
-- A02 = One kick, PAD velocity A01, A05, A09, A13
-- A03 = One kick, Pitch Chromatic -6 A01, A05, A09, A13
