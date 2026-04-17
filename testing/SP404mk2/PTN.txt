@@ -1,4 +1,105 @@
+
 ### Findings
+
+Pad records:
+
+A more complex pattern where there is a kick on every step:
+
+00 2F 00 8D 5A 40 77 00 | 78 80 00 00 00 00 00 00
+78 2F 00 8D 5A 40 77 00 | 0F 2F 00 8D 5A 40 77 00
+69 80 00 00 00 00 00 00 | 78 2F 00 8D 5A 40 77 00
+1E 2F 00 8D 5A 40 77 00 | 5A 80 00 00 00 00 00 00
+78 2F 00 8D 5A 40 77 00 | 2D 2F 00 8D 5A 40 77 00
+4B 80 00 00 00 00 00 00 | 78 2F 00 8D 5A 40 77 00
+3C 2F 00 8D 5A 40 77 00 | 3C 80 00 00 00 00 00 00
+78 2F 00 8D 5A 40 77 00 | 4B 2F 00 8D 5A 40 77 00
+2D 80 00 00 00 00 00 00 | 78 2F 00 8D 5A 40 77 00
+5A 2F 00 8D 5A 40 77 00 | 1E 80 00 00 00 00 00 00
+78 2F 00 8D 5A 40 77 00 | 69 2F 00 8D 5A 40 77 00
+0F 80 00 00 00 00 00 00 | 78 2F 00 8D 5A 40 77 00
+00 8C 00 00 00 00 00 00   01 00 00 00 00 80 01 01
+
+All total offsets together with a full grid per step is 1920.
+
+>>> 0x00 + 0x78 + 0x78 + 0x0f + 0x69 + 0x78 + 0x1e + 0x5a + 0x78 + 0x2d + 0x4b + 0x78 + 0x3c + 0x3c + 0x78 + 0x4b + 0x2d + 0x78 + 0x5a + 0x1e + 0x78 + 0x69 + 0x0f + 0x78
+1920
+
+Divided by 16 is 120.
+The nudge in the microscope function for a step does not go further than 119, which correlates with the max granularity per step.
+
+The offset function cannot go above 128, if it does, it does not contain note information, but merely a filler.
+
+If we go back to the singe kick with fillers:
+
+00 3F 00 8D 5A 40 77 00 | 00 2F 00 8D 5A 40 77 00
+FF 80 00 00 00 00 00 00 | FF 80 00 00 00 00 00 00
+FF 80 00 00 00 00 00 00 | FF 80 00 00 00 00 00 00
+FF 80 00 00 00 00 00 00 | FF 80 00 00 00 00 00 00
+FF 80 00 00 00 00 00 00 | 87 80 00 00 00 00 00 00
+00 8C 00 00 00 00 00 00   01 00 00 00 00 80 01 01
+
+Since we have a grid of 1920 ticks, and we have two notes starting at offset 0x00, and we have one offset at the end
+that is 0x87, we can try 1920 - 0x87 = 1785, since we have 7 entries with 0xff, and 1785/7 = 255 (0xff) it seems that
+the offset(s) above 127 with no pad info are there to count the ticks in a 1920 counter for our sequence.
+
+This means every grid we see will start a counter at 0, up to 1920, and we can decipher what notes fall where, and for
+entries with a pad entry of 0x80 are fillers.
+
+But, of a pad (A01) starts at 0x2f, what will pad J16 be? By all means there are 160 pads A/J = 10 * 16 = 160.
+
+I recorded a pad J16 which will look like this:
+
+00 7E 01 8D 5A 40 77 00 FF 80 00 00 00 00 00 00
+
+0x2f 0x00 = A01
+0x3f 0x00 = B01 (16 pads down)
+0x4f 0x00 = C01
+0x5f 0x00 = D01
+0x6f 0x00 = E01
+0x2f 0x01 = F01
+0x3f 0x01 = G01
+0x4f 0x01 = H01
+0x5f 0x01 = I01
+0x6f 0x01 = J01 (0x7e 0x01 = J16)
+
+### Notes from NearTao
+
+NOTE: Pattern file appears to be 8 byte aligned
+
+End of pattern record
+008c 0000 0000 0000
+
+Event Record
+xxx0 -     : # of ticks for the record 00 invalid?  0x01 1, 0xff 127
+xxx1 -     : Pad (x2F (Pad A1) -> xCE (Pad J16?))
+xxx2 -     :
+xxx3 -     : Chromatic Pitch
+xxx4 -     : Pad Velocity
+xxx5 -     :
+xxx6 - xxx7: reverse order tick length, -1 (since 0 start), ie 3/4 1 bar is 1440 ticks,
+           : a 1.1.1 start Gate LAST is 9f05, or x059f is 1439 ticks
+
+Post end of pattern record
+xxx0 -     : # of bars x01 is 1, x40 is 64
+xxx1 -     :
+xxx2 -     :
+xxx3 -     :
+xxx4 -     :
+xxx5 -     : loop start but weird?
+xxx6 -     : loop end x01 is 1, x40 is 64
+xxx7 -     :
+
+### 2026-04-17
+
+- Pattern A05, 1 bar, pad B01 kick on 1,5,9,13
+- Pattern A06, 1 bar, pad A01 and pad B01 kick on 1,5,9,13
+- Pattern A07, 1 bar, pad A01 on 1,5,9,13 and pad B01 on 3,7,11,15
+- Pattern A09, 1 bar, pad A01 on all steps (very interesting: record, empty step, record, record, empty step?,  etc)
+  - Do all pads that are present have a record, that is not used?
+  - Is it tick aligned, and is
+- Pattern A13 - 1 bar, pad A01 kick on 1 and nothing else
+- Pattern A14 - 1 bar, pad B01 kick on 1 and nothing else
+- Pattern A15 - 1 bar, pad A01 kick on 1 and nothing else, microscope offset 070
 
 #### TODO
 
