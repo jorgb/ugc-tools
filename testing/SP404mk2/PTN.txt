@@ -1,4 +1,14 @@
 
+### TODO
+- Test more than one bar
+- Verify 1920 ticks on multiple BPMs
+- Gated notes, when held what does this look in the sequence?
+- Chromatic pitch?
+- Recorded volume of pad
+- EXT-IN automation, how is that recorded in the pattern?
+- Motion recording, how does that look on the sequence?
+- End of pattern marker information
+
 ### Findings
 
 Pad records:
@@ -100,20 +110,6 @@ xxx7 -     :
 - Pattern A13 - 1 bar, pad A01 kick on 1 and nothing else
 - Pattern A14 - 1 bar, pad B01 kick on 1 and nothing else
 - Pattern A15 - 1 bar, pad A01 kick on 1 and nothing else, microscope offset 070
-
-#### TODO
-
-- What happens if I nudge an event with microscope?
-- What if multiple steps are on one pattern?
-  - Make one pattern with A01 playing and B01 playing
-  - Make one pattern with A01 and F01 playing (A/F are the same button)
-- Pad event decoding, what bits are for what pad?
-  - Make one pattern with A01 on step 1
-  - Make one pattern with A02 on step 1
-  - Make one pattern with A05 ..
-  - Make one pattern with A09 ..
-  - Make one pattern with A13 ..
-  - Make one pattern with B01 .. etc
 
 #### pad-sequencer/2026-04-08
 

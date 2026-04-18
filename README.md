@@ -15,9 +15,9 @@ For example, extracting the pattern info and samples directly from a SP404mk2 pr
 Things I want to eventually accomplish (will most likely change over time)
 
 - [ ] SP404mk2
-  - [x] Write parser for SP404mk2 PADCONF.BIN format (banks, start / end, play modes)
+  - [ ] `>` Write parser for .PTN file (extract sequence information)
   - [ ] Write parser for .SMP file (extract chop points, sample data, etc.)
-  - [ ] Write parser for .PTN file (extract sequence information)
+  - [x] Write parser for SP404mk2 PADCONF.BIN format (banks, start / end, play modes)
 - [ ] MPC (MPC Sample / Live III)
   - [ ] Figure out the XPJ format
   - [ ] ...
