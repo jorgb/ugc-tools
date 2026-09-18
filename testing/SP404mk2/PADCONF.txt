@@ -1,4 +1,24 @@
-## 2025-11-08 
+## 2026-09-18 — cross-checked against an independent RE project
+
+See `mk2_notes.txt`'s "2026-09-18" section for the detailed word-by-word
+comparison against [TuscanPL/SparkyMK2](https://github.com/TuscanPL/SparkyMK2)
+(an independent, clean-room RE of the same device via USB protocol capture).
+Specific to the findings in this file:
+
+- The `0x6C20` (sample names) and `0x7B20` (chop points) offsets below are
+  confirmed exactly — SparkyMK2 independently documents the same two
+  offsets from live USB replies, with the same "16 chop points then 16
+  reserved words" per-pad layout `sp404.padconf.Pad` already relies on.
+- Roll (params below marked `?`) has a documented live-protocol id (`0x7B`,
+  range 0–10, "1/4 = 2") and a separate "Groove" id (`0x8A`, 8 options) —
+  worth revisiting the `A10`/`A11`/`A12` roll tests below with those id/range
+  hints in mind, though this file's own values weren't decoded from the
+  live protocol so the exact on-disk encoding still needs confirming
+  directly.
+- The Poly/Legato/Mono bit flags found here (word 10, bits 3–4) are
+  independently confirmed bit-for-bit by SparkyMK2 — see `mk2_notes.txt`.
+
+## 2025-11-08
 
 Sample names start at 0x6C20
 

@@ -1,4 +1,109 @@
 
+### 2026-09-18 — cross-checked against an independent RE project
+
+[TuscanPL/SparkyMK2](https://github.com/TuscanPL/SparkyMK2) is a clean-room
+reverse-engineering project for the same device, built from USB captures of
+the official app plus its own pattern-file export tests. Its
+[`docs/re/04-patterns.md`](https://github.com/TuscanPL/SparkyMK2/blob/main/docs/re/04-patterns.md)
+covers exactly this file format independently. Comparing against everything
+found below:
+
+**Tick math confirmed, not contradicted.** SparkyMK2 states "480 ticks per
+quarter note" and that every pattern file in their export totalled 7680
+ticks = 4 bars of 4/4. That's the *same* 480-ticks-per-quarter as this
+file's own finding (1920 ticks per bar ÷ 4 beats = 480/beat) — the
+"1920" and "7680" numbers aren't in conflict, they're just a 1-bar test
+pattern here vs. a 4-bar one there (1920 × 4 = 7680).
+
+**Pad-ID decoding confirmed byte-for-byte.** SparkyMK2 independently
+describes byte 1 as "note on pad `0x2F` + bank-within-group × 16 +
+(pad − 1)" with byte 2's low nibble selecting "0 = banks A–E, 1 = banks
+F–J" — this is exactly `sp404.ptn.PadID`'s logic and its `0x2f`–`0x7e`
+range check, arrived at completely independently (they reverse-engineered
+the *live USB protocol*, not this file format). One robustness note: they
+say "low nibble," implying the rest of the byte could carry other bits;
+`PadID` currently requires `pad_toggle` to be exactly `0x00` or `0x01` and
+raises otherwise — masking with `& 0x0F` first would be a touch more
+defensive, though no evidence has turned up of the upper nibble ever being
+non-zero.
+
+**Record types: 0x8C and 0x8E are not just "fillers" — this likely answers
+the EXT-IN automation question below.** SparkyMK2 documents record type
+byte 1 more precisely than "any value ≥ 0x80 means no pad": `0x8C` is
+specifically the end-of-events marker (the next record is the trailer —
+matches this file's own finding), `0x8E` is specifically a **control
+change** event (byte 2 = MIDI channel, byte 5 = controller, byte 6 =
+value), and *only other* values ≥ 0x80 are pure time-filler with no
+payload. This is almost certainly the "EXT-IN automation" mechanism this
+file's own TODO list has been asking about.
+
+This matters for `sp404/ptn.py`: it currently treats *any* record with
+`buf[1] & 0x80` set as "no pad information" and (per the planned extension
+in `convert/xpj/DESIGN.md` §3.2) would fold all of those into pure tick
+filler and discard them — which would silently swallow `0x8E` control-change
+payloads along with genuine fillers. Worth special-casing `0x8C` (stop,
+trailer follows — already effectively handled today since the last 16
+bytes are sliced off as the footer) and `0x8E` (extract channel/controller/
+value) before treating everything else ≥ 0x80 as filler.
+
+**Byte 3 (chromatic pitch) is a flag+value, not a raw offset.** SparkyMK2:
+"0 = plain note. Otherwise a pitched note: bit 7 is a flag and bits 0–6 a
+value; `0x8D` is most common, probably the original pitch." This lines up
+with every hex dump in this file — byte 3 is `0x8D` in literally every
+example captured so far, which is exactly why "Chromatic pitch?" is still
+unresolved here: none of the test patterns captured so far happen to vary
+it away from that baseline value.
+
+**New finding: bytes 4 and 5 are two separate velocities, not one.**
+SparkyMK2: byte 4 = note-on velocity, byte 5 = **note-off velocity**
+(constant `64` in every file they examined). This file's own very first hex
+dump independently confirms the second half: `... 5A 40 77 00` has byte 5 =
+`0x40` = 64, an exact match, even though this file never previously
+identified byte 5 as anything (the "Notes from NearTao" table below leaves
+`xxx5` blank). Byte 4 in that same example is `0x5A` = 90 — not the fixed
+127 SparkyMK2 says they saw "in every file," which just reflects that this
+file's test pattern deliberately varies pad velocity (see the "A02 = PAD
+velocity" entry further down) while SparkyMK2's sample set apparently
+didn't. `sp404.ptn.PatternEvent.velocity` currently only reads byte 4
+(note-on); byte 5 (note-off velocity) isn't exposed at all.
+
+**Trailer bytes refined — partly confirms, partly corrects, this file's own
+findings.** SparkyMK2's trailer layout: byte 0 = bars count, byte 4 = time
+signature (0=4/4, 1=1/4, 2=2/4, 3=3/4, 4=5/4, 5=6/4, 6=7/4), byte 7 = must
+be non-zero. Byte 0 and byte 7 match this file's own findings exactly
+(`x01` for a 1-bar pattern; `x01` non-zero sentinel). **Byte 4 (time
+signature) is new** — not previously identified here.
+
+For trailer bytes 5–6, though, **this file's own findings look more
+accurate than SparkyMK2's**: SparkyMK2 calls both "`80`, `04` in every file;
+unused by the app," but the "Notes from NearTao" section below already
+documents byte 6 varying between `x01` (1 bar) and `x40` (64 bars) as
+"loop end" — directly contradicting "always `0x04`." The likely explanation
+is that SparkyMK2's own test files all happened to share one loop-end
+value, making it look constant in their smaller sample. Trust this file's
+"loop start / loop end" reading for trailer bytes 5–6 over the external
+source.
+
+**New file: `PTN/PATTERNCHAIN_00.CHN`.** SparkyMK2 documents an XML file
+alongside the `PTN/` folder listing the project's pattern-chain order and
+repeat mode (pattern numbers in chain order, not names). It isn't present
+in `testing/SP404mk2/pad-sequencer/2026-04-08/` — worth checking whether a
+fresh export includes it, since the `convert/xpj/DESIGN.md` open question
+about recovering human-readable sequence names would still need something
+else (this file only carries chain order, not names).
+
+**Bonus, relevant to `convert/xpj/DESIGN.md`'s pad→note mapping decision
+(not something to fix here, just worth cross-referencing):** SparkyMK2
+documents the official app's *own* SMF-export note mapping as
+`note = 36 + T[pad − 1]` with `T = [12,13,14,15,8,9,10,11,4,5,6,7,0,1,2,3]`
+— a reversed-4-block mapping (pads 13–16 → notes 36–39, pads 9–12 → 40–43,
+pads 5–8 → 44–47, pads 1–4 → 48–51), not a simple sequential one. The XPJ
+design doc currently uses a simpler sequential 37–52 mapping instead; that
+remains a valid choice since the mapping is fully self-describing in XPJ
+(`padNoteMap`), but adopting Roland's own scheme would make the converted
+project's note numbers match what you'd get from the SP404's own MIDI
+export feature, for whoever finds that useful to cross-check against.
+
 ### TODO
 - Test more than one bar
 - Verify 1920 ticks on multiple BPMs

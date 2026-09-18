@@ -1,3 +1,67 @@
+## 2026-09-18 — cross-checked against an independent RE project
+
+[TuscanPL/SparkyMK2](https://github.com/TuscanPL/SparkyMK2) is a clean-room
+reverse-engineering project for the same device (SP-404MKII), built from USB
+protocol captures rather than file-format analysis. Its
+[`docs/re/02-files.md`](https://github.com/TuscanPL/SparkyMK2/blob/main/docs/re/02-files.md)
+documents the `.SMP` format independently. Comparing against it:
+
+**Confirmed exactly**: `RFWV` magic at 0x00, sample rate at 0x08, channel
+count at 0x0C. The field at 0x04 is documented there as "file size − 8", and
+this checks out byte-for-byte against our own fixtures — read directly with
+Python against `testing/SP404mk2/pad-sequencer/2026-04-08/SMPL/BANK1-01.SMP`
+and `BANK2-01.SMP`, the u32 at 0x04 equals `os.path.getsize(file) - 8`
+exactly for both.
+
+**New header fields not previously noted here**: 0x10 = bits per sample
+(16), 0x14–0x1F = zero padding, 0x20–0x2F = **MD5 of header bytes 0x04–0x13**
+(the four big-endian fields above), 0x30–0x1FF = filler (the official app
+writes `rand()` output here). None of this affects decoding — payload still
+starts at 0x200 — but the MD5 is worth knowing about if we ever want to
+verify a re-encoded/converted `.SMP` would pass the device's own "Hash Check
+Error" validation.
+
+**Likely bug found in `sp404/smp.py`'s `Sample.size`**, found by testing the
+current formula against the real fixture files above rather than trusting
+either exploratory formula in this file. SparkyMK2 gives a clean, worked
+example: `BANK2-01.SMP` (in their own capture) is `512 + frames × 4` bytes
+for a stereo file, i.e. `frames = (file_size - 512) / (2 * channels)` — a
+plain "payload bytes ÷ bytes per frame" computation with no fudge constant.
+Testing that against our own fixtures:
+
+```
+BANK1-01.SMP: disk size 308716, raw field (0x04) 308708, channels=2
+  pure frame count = (308708 - 0x200 + 8) / 4 = 77051  (1.605 s @ 48kHz)
+  sp404/smp.py's current Sample.size                 = 308204  (6.42 s)
+BANK2-01.SMP: disk size 294012, raw field (0x04) 294004, channels=2
+  pure frame count = (294004 - 0x200 + 8) / 4 = 73375  (1.529 s @ 48kHz)
+  sp404/smp.py's current Sample.size                 = 293500  (6.11 s)
+```
+
+The current code's result is **exactly 4× the plain frame count** in both
+cases (308204/77051 = 4.0, 293500/73375 = 4.0 exactly). Tracing why: the
+code computes `(raw - 0x200 + mode*4) / mode * 2`, and for stereo
+(`mode.value == 2`) the `/ 2` and `* 2` cancel out algebraically, leaving
+`raw - 0x200 + 8` completely undivided by the channel/sample-width factor —
+so it's reporting *bytes*, not *frames*, off by the factor of 4 that should
+have come from "2 bytes per sample × 2 channels."
+
+This also explains why the two formulas in the sections below already
+disagree with each other for the mono case (2025-11-14's `+4` post-division
+vs. 2025-11-15's `+4` pre-division — these are *not* equivalent; only
+2025-11-14's is consistent with the algebra above). The corrected formula,
+consistent with both SparkyMK2's independent derivation and the
+2025-11-14 section below:
+
+```
+size = (raw_samplesize - 0x200 + 8) / (2 * channels)
+```
+
+This has **not** been re-verified against the SP404 app itself (that would
+need the device or the official app, not just static analysis) — treat it
+as a high-confidence bug candidate, not a confirmed fix, until checked
+against the app the way the original formula below claims to have been.
+
 ## 2025-11-15
 
 Stereo and mono, plus two 16 bit samples?

@@ -1,3 +1,84 @@
+### 2026-09-18 — cross-checked against an independent RE project
+
+[TuscanPL/SparkyMK2](https://github.com/TuscanPL/SparkyMK2) is a clean-room
+reverse-engineering project for the same device, derived from USB protocol
+captures (not file analysis), which cross-decodes `PADCONF.BIN` as "the same
+structures the device sends over channel 5." Its
+[`docs/re/02-files.md`](https://github.com/TuscanPL/SparkyMK2/blob/main/docs/re/02-files.md)
+and
+[`docs/re/03-parameters.md`](https://github.com/TuscanPL/SparkyMK2/blob/main/docs/re/03-parameters.md)
+independently confirm the overall structure in this file — `RFPD` magic,
+`0xA0` pad-records offset, `0x80` project name, `0x6C20` pad names,
+`0x7B20` chop points, 172-byte (43 × u32) pad records, and the "16 chop
+points then 16 reserved words" per-pad chop block (matches
+`sp404.padconf.Pad`'s own `f.read(0x80)[0:64]` — it only interprets the
+first half of that 128-byte block, discarding the reserved half, which
+lines up exactly).
+
+**The absolute byte-offset table above (dated "Older") is off by 1 byte
+throughout**, relative to both SparkyMK2's independent numbering and the
+actual verified code in `sp404/padconf.py`. E.g. this file says
+"00A5–00A8: Sample Start", but the code reads `buf[4:8]` relative to a
+struct starting at `0xA0` — i.e. absolute `0xA4`–`0xA7`, one byte earlier.
+Treat `sp404/padconf.py` as authoritative over the absolute offsets in this
+file; the table below is word-index-relative instead, which avoids the
+ambiguity.
+
+**Per-pad word index cross-reference** (43 × u32 words per 172-byte record,
+word 0 = bytes 0–3 of the record). SparkyMK2 numbers the same words as
+"fields" 0–42 and gives each a live USB set-parameter id (`0x67 + field`
+from field 3 onward); both numberings are shown since the id is a handy
+memory aid:
+
+| word | SparkyMK2 field/id | `sp404.padconf.Pad` attribute | Status |
+|---|---|---|---|
+| 0 | field 0: SMP file size in bytes (0 = empty pad) | *(not read)* | new info — could replace the current `pad.name`-emptiness check |
+| 1 | field 1 / `67` Start | `sample_start` | confirmed |
+| 2 | field 2 / `68` End | `sample_end` | confirmed |
+| 3 | field 3 / `69` Level (0–127) | `vol` | confirmed |
+| 4 | field 4 / `6A` Gate (0/1) | `gate` | confirmed |
+| 5 | field 5 / `6B` Loop (0/1 live; `0x7FFFFFFF` sentinel on disk) | `TrigMode.parse`'s `loop_mode` arg | confirmed (on-disk sentinel differs from the live 0/1 value, but it's the same field) |
+| 6 | field 6 / `6C`: "meaning unknown; 1 on every loaded pad seen" | *(not read)* | new info, no action needed |
+| 7 | field 7 / `6D` Mute Group (0=off, 1–10) | `mute_group` | confirmed |
+| 8 | field 8 / `6E` BPM Sync (0/1) | `bpm_sync` | confirmed |
+| 9 | field 9 / `6F` BPM × 100 (4000–20000) | `bpm` | confirmed |
+| 10 | field 10 / `70` Trigger/mode flags (bit0=Fixed Velocity, bit3+4=Chromatic, bit5=One Shot) | `TrigMode.parse`'s `trig_mode` arg, `Chromatic.parse` | confirmed bit-for-bit — `trig_mode & 0x20` (One Shot), `trig_mode & 0x01` (Fixed Velocity), `value & 0x10`/`0x08` (Poly/Legato) all match exactly |
+| 11 | field 11 / `71` Loop Top (byte offset) | `loop_start` | confirmed |
+| 13 | field 13 / `73` Pitch Coarse, semitones −12..12 | *(not read — gap)* | **not currently exposed by `Pad`** |
+| 14 | field 14 / `74` Pitch Fine, cents −100..100 | *(not read — gap)* | **not currently exposed by `Pad`** |
+| 15 | field 15 / `75` Play Mode | `play_mode` | confirmed |
+| 16 | field 16 / `76` **Time Stretch**, percent × 100 (5000–15000) | `pitch_perc` | **likely mislabeled — see below** |
+| 19 | field 19 / `79` PAD Link (0=off, 1–10) | `pad_link` | confirmed |
+| 20 | field 20 / `7A` BUS FX Assign (0–2) | `bus_fx` | confirmed |
+| 22–24 | fields 22–24 / `7D`–`7F` Attack/Hold/Release | *(not read)* | new info, not currently exposed |
+
+**`pitch_perc` is very likely "Time Stretch %", not raw pitch.** The field
+`sp404.padconf.Pad.pitch_perc` (word 16) matches SparkyMK2's documented
+"Time Stretch, percent × 100" parameter exactly by word position, and its
+range (5000–15000 → 50%–150%) matches the `/100` scaling already used in
+the code. The *actual* pitch controls — Pitch Coarse (semitones) and Pitch
+Fine (cents) — live at words 13 and 14, which `Pad` doesn't read at all
+today. Checked empirically against `testing/SP404mk2/pad-params/PADCONF.BIN`:
+every pad in that file reads exactly `10000` (100.00%) at word 16 and `0` at
+words 13/14 — consistent with "untouched defaults," but none of that
+fixture's pad-params tests specifically exercise pitch or time-stretch, so
+this isn't a 100%-confirmed empirical match, just a strong structural one.
+Recommend: (1) renaming `pitch_perc` to something like `time_stretch_perc`
+for clarity, and (2) adding `pitch_coarse`/`pitch_fine` fields backed by
+words 13/14 if per-pad chromatic tuning is ever needed (e.g. for a
+converter to another format).
+
+**Bank BPM `/200` explained.** SparkyMK2's project-settings layout
+(separate from the per-pad table above) documents word `12 + bank` as
+packing **two** things into one 32-bit word: bit 0 = bank protect flag,
+bits 1–16 = bank tempo as BPM × 100. That's a 1-bit left shift, i.e.
+`raw_word = bpm × 200 + protect_flag` — which is exactly why dividing the
+raw word by 200 (as `sp404.padconf.Project._read` already does) recovers
+the BPM. For full precision this should mask off bit 0 first
+(`(raw_word >> 1) / 100.0`) rather than dividing the whole word by 200, but
+the error from not doing so is at most ~0.005 BPM when the bank-protect bit
+happens to be set — negligible for display purposes.
+
 ### 2026-04-09
 
 An empty project can't be exported, only projects with data.
