@@ -6,3 +6,4 @@ venv/
 __pycache__/
 *.swp
 .DS_Store
+/testing/SP404mk2/playy/

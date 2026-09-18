@@ -19,4 +19,7 @@ def read_slong_b(buf):
 
 def read_string(f, size):
     buf = f.read(size)
-    return struct.unpack("%ds" % size, buf)[0].decode('ascii').rstrip('\x00')
+    # only the bytes up to the first NUL terminator are meaningful; bytes
+    # after that can be stale leftover data rather than more padding (seen
+    # in real pad name fields, e.g. b"Backing Sample\x00\x00\x00      \x00")
+    return buf.split(b'\x00', 1)[0].decode('ascii')

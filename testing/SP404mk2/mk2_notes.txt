@@ -1,3 +1,34 @@
+### 2026-09-18 (later) — real-world bug: pad name fields can have stale bytes after the NUL terminator
+
+Running the converter against an older, real project export
+(`testing/SP404mk2/playy/`, 101 populated pads) surfaced a bug in
+`sp404.spread.read_string`, used for both pad names (24 bytes) and the
+project name (31 bytes). It assumed a fixed-width string field is "text,
+then NUL padding out to the field width" and stripped trailing NULs
+accordingly (`.rstrip('\x00')`). A real pad name field's raw bytes were:
+
+```
+b'Backing Sample\x00\x00\x00      \x00'
+```
+
+i.e. the real text ("Backing Sample"), then 3 NUL bytes, then 6 literal
+space characters, then one more trailing NUL. `.rstrip('\x00')` only
+strips the *trailing* NUL, leaving `'Backing Sample\x00\x00\x00      '`;
+a subsequent `.strip()` (already present in `sp404.padconf.Project._read`)
+removes the trailing spaces but not the 3 embedded NULs, leaving
+`'Backing Sample\x00\x00\x00'` — a name with garbage baked into it.
+
+This looks like leftover memory from a previously-written, longer name
+that wasn't fully cleared before the shorter name was written over it —
+i.e. this field behaves like a C string (content ends at the *first* NUL;
+anything after is meaningless leftover), not "text + trailing NUL padding
+only."
+
+**Fix**: `read_string` now truncates at the first NUL byte in the raw
+bytes (`buf.split(b'\x00', 1)[0]`) before decoding, matching C-string
+semantics, rather than trying to strip whitespace/NULs from the end.
+Regression tests: `tests/test_spread.py`.
+
 ### 2026-09-18 — cross-checked against an independent RE project
 
 [TuscanPL/SparkyMK2](https://github.com/TuscanPL/SparkyMK2) is a clean-room

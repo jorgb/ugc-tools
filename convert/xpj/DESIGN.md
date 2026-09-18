@@ -667,12 +667,20 @@ physically cutting the audio. This:
 - Leaves the door open for a later "slices" mode without re-decoding
   audio, if that's ever wanted.
 
-If two pads reference the exact same underlying `.SMP` file (same
-`SMPL/BANK<n>-<m>.SMP`, different start/end), they are still decoded once
-and written once, and both pads' layers point at the same sample-pool
-`path` (via their own `sampleFile`) with their own `sampleStart`/
-`sampleEnd` — mirroring the SP404's own "shared sample buffer" model and
-avoiding duplicate WAV files.
+**Correction from implementation (2026-09-18): no dedup is needed, or
+possible, at the file level.** The paragraph above assumed pads could
+share an underlying `.SMP` file. Checked directly against this repo's own
+fixture (`testing/SP404mk2/pad-sequencer/2026-04-08/`): `SMPL/BANKb-pp.SMP`
+is named per **bank+pad** (`b` = bank number 1-10, `pp` = pad number
+01-16, confirmed against the independent RE project cited in
+`testing/SP404mk2/mk2_notes.txt`/`PTN.txt`), not per unique sample content
+— every populated pad slot owns its own dedicated `.SMP` file on the
+SP404's filesystem, one-to-one, even if the user assigned "the same"
+sound to two pads (that copies the audio into two separate files). So
+`convert/xpj/convert.py` does exactly one `.SMP` -> `.wav` conversion per
+populated pad slot, with no dedup logic at all — simpler than originally
+planned here, and confirmed correct against the fixture (`BANK1-01.SMP` ↔
+pad A01, `BANK2-01.SMP` ↔ pad B01).
 
 ## 6. SMP → WAV conversion
 
@@ -700,8 +708,8 @@ only needs `pyyaml`).
 in the full schema, and MPC-Sample-Toolkit reaches the same conclusion in
 practice: its `Layer`/`Track`/`SliceInfo` dataclasses (`src/mpctk/xpj/model.py`)
 each carry a catch-all `raw_data: dict[str, Any]` field precisely so that
-any key the tool doesn't explicitly model round-trips untouched. We follow
-the same principle, at two levels:
+any key the tool doesn't explicitly model round-trips untouched. The
+*intent* was to follow the same principle by capturing real templates:
 
 1. **Capture a template project once**: save an empty project with 10
    empty drum tracks (named `A`..`J`) from real MPC Sample or MPC Live III
@@ -710,57 +718,81 @@ the same principle, at two levels:
    small sidecar, e.g. `empty_project.header.txt`).
 2. **Capture a template note event, separately**: place a single note in
    the grid on one of those tracks, save, and extract that one event
-   object into `convert/xpj/template/note_event.json`. Every note event we
-   generate is a deep copy of this template with only `time`, `note.note`,
-   `note.velocity`, and `note.length` overwritten — this is what
-   guarantees the 16 modifier slots and the
-   `"EnumCerealisationWrapper(selectedModifierType)"` key (§4.1, §5.3) are
-   always present and valid without us having to hand-author them.
-3. At convert time: load the project template JSON, then only mutate the
+   object into `convert/xpj/template/note_event.json`.
+
+**What was actually implemented instead (no MPC hardware/software was
+available while building this converter):** `convert/xpj/template.py`
+hand-builds the same structures in Python
+(`empty_project()`, `empty_track()`, `empty_instrument()`, `empty_layer()`,
+`empty_sequence()`, `empty_clip()`, `empty_note_event()`, etc.), directly
+from the documented schema in §4.3, rather than loading captured JSON
+files. This is a real gap, not a stylistic choice: the synthetic template
+only contains the fields §4.3 documents, and almost certainly does not
+match a real hardware-saved project field-for-field — the ~120
+undocumented fields mentioned above are, by definition, not in it. If a
+real captured template ever becomes available, swapping
+`convert/xpj/template.py`'s functions to load and `copy.deepcopy()` from
+checked-in JSON instead of building dicts inline is a self-contained
+change; nothing outside `template.py` needs to know the difference, since
+`writer.py` only calls `template.empty_*()` functions.
+
+Regardless of where the template pieces come from, the mutation strategy
+is unchanged:
+
+3. At convert time: load the project template, then only mutate the
    fields this design actually maps (§5.4) — tracks'
    `program.drum.instruments`, `program.padNoteMap`, track/sample pool
    entries, and `sequences` (built from cloned template clips, §4.3).
    Every constant/UI-state key (Q-Link mappings, quantiser defaults, XY
-   pad modes, locators, etc., see §4.3) passes through untouched.
+   pad modes, locators, etc., see §4.3) passes through untouched — or, in
+   the current synthetic-template implementation, simply doesn't exist,
+   which is the main way this converter's output is expected to differ
+   from a real hardware-saved project.
 4. Re-serialize: JSON-encode, prepend the 5 header lines + a newline,
    gzip, write to `<ProjectName>.xpj` — matching MPCTK's own writer
-   exactly (§4.1).
+   exactly (§4.1). Implemented as `writer.serialize()`.
 
 This bounds the risk of "hardware refuses to load the file because of a
 missing undocumented field" to whatever was already present in a
-hardware-saved template, rather than to gaps in the reverse-engineered
-spec.
+hardware-saved template — but since no such template exists here yet, that
+risk has **not actually been bounded in the current implementation**. §10's
+manual hardware/software validation checklist is the way to find out what,
+if anything, real hardware is missing from `template.py`'s output.
 
-## 8. Proposed module layout
+## 8. Module layout
 
 ```
 convert/
+  __init__.py             # makes `convert` importable as a package (for tests)
+  sp404_to_xpj.py         # CLI entry point, see below
   xpj/
     DESIGN.md              (this file)
     __init__.py
-    template/
-      empty_project.json       # captured from real MPC software, see §7
-      empty_project.header.txt
-      note_event.json          # captured from real MPC software, see §7
-    model.py               # intermediate representation: Bank, PadSlot,
-                            # PatternEvent-with-absolute-tick, decoupled
+    template.py            # synthetic template pieces (§7) - would become
+                            # template-JSON loading if a real capture shows up
+    model.py               # intermediate representation: PadSlot, BankTrack,
+                            # NoteEvent, SequenceInfo, ProjectModel - decoupled
                             # from both sp404's raw structs and MPC's JSON
     mapping.py             # the tables in §5.4 as data + pure functions
     wav.py                 # SMP -> WAV (§6)
-    writer.py              # template loading, JSON mutation, gzip/header
-                            # framing, on-disk [Project Data] layout (§4.2)
-    convert.py             # top-level orchestration: read sp404 export,
-                            # build model.py objects, call writer.py
+    writer.py              # template mutation, gzip/header framing,
+                            # on-disk [Project Data] layout (§4.2, §9)
+    convert.py             # top-level orchestration + logging: read sp404
+                            # export, build model.py objects, call writer.py
 ```
 
-`sp404/ptn.py` gains the `absolute_tick`/`gate_ticks` extensions from
-§3.2 in place — `convert/xpj` should not re-implement pattern parsing.
+`sp404/ptn.py` gained the `absolute_tick`/`gate_ticks`/trailer-decoding
+extensions from §3.2 in place — `convert/xpj` does not re-implement
+pattern parsing.
 
-A CLI entry point at the repo root, consistent with the existing
-`sp404_padconf.py` / `sp404_smp.py` / `sp404_ptn.py` scripts:
+The CLI entry point lives at `convert/sp404_to_xpj.py` (placed inside
+`convert/` rather than at the repo root, unlike `sp404_padconf.py` and
+friends), and bootstraps `sys.path` at startup so `sp404` (a repo-root
+package) and `xpj` (its own sibling under `convert/`) are both importable
+regardless of the current working directory:
 
 ```
-sp404_to_xpj.py <path-to-export-folder> <output-folder> [--project-name NAME]
+python convert/sp404_to_xpj.py <sp404-export-folder> <output-folder> [--project-name NAME] [--dry]
 ```
 
 ## 9. Output layout produced by the converter
@@ -938,6 +970,66 @@ Observed conventions to match:
 6. Wire up `convert.py` + `sp404_to_xpj.py` CLI.
 7. Run the manual validation checklist (§10) on real MPC hardware/software
    and fold in whatever §11 questions get resolved.
+
+## 14. Implementation status (2026-09-18)
+
+Steps 1, 3-6 above are done. Step 2 was **not** done as planned (no MPC
+hardware/software was available) — see §7's "what was actually
+implemented instead." Step 7 (real hardware/software validation) has not
+happened; this remains the single biggest open risk.
+
+What has been verified, end to end, against this repo's own
+`testing/SP404mk2/pad-sequencer/2026-04-08/` fixture:
+
+- `convert/sp404_to_xpj.py --dry` logs the full project (banks, pads with
+  duration/settings, sequences with note/control-change counts) and
+  writes nothing to disk.
+- A real (non-dry) run produces `PROJECT_08.xpj` +
+  `PROJECT_08 [Project Data]/Samples/*.wav` in the documented layout (§9).
+- The `.xpj` gunzips and parses as the documented shape (§4.3): correct
+  header lines, `tracks: ["A", "B"]`, `padNoteMap` values, per-instrument
+  `sampleFile`/`sampleName` split, note events with the correct nested
+  `{"type": 3, "note": {...}}` shape, correct `velocity`/`length`/`time`
+  values traced back to specific bytes in the source `.PTN` files.
+- The written WAVs are valid, playable 16-bit PCM (checked with Python's
+  own `wave` module) whose sample values match the source `.SMP` payload
+  byte-for-byte once byte-swapped, and whose frame counts match
+  `Sample.size` exactly.
+- `sequence PTN00003` (the pattern this repo's own notes identify as "One
+  kick, Pitch Chromatic -6") produces exactly the expected non-default
+  chromatic-pitch warning on all 4 of its note events, which is a good
+  sign the byte-level decoding in `sp404/ptn.py` lines up with what was
+  actually recorded on the device for that test.
+
+What is still unverified: everything in §11, plus whether the synthetic
+`template.py` output (§7) is missing a field real MPC Sample / MPC Live
+III firmware requires to load the file at all. That can only be checked
+by actually opening a produced `.xpj` in MPC Sample or MPC Live III.
+
+**Update (2026-09-18, later): tested against a real, older, much larger
+project export** (`testing/SP404mk2/playy/`, 101 populated pads across 9
+banks, 16 sequences) and found two real bugs the narrower earlier fixtures
+never exercised:
+
+- `sp404.ptn.PadID` crashed on a pad-group byte with an extra bit set
+  (`0x40`) that an independent RE project had already flagged as
+  "app-ignored" but which this parser wasn't tolerant of yet. Fixed by
+  masking to the low nibble before validating — see
+  `testing/SP404mk2/PTN.txt`'s later 2026-09-18 section.
+- `sp404.spread.read_string` produced pad names with embedded NUL bytes
+  (e.g. `"Backing Sample\x00\x00\x00"`) because a real pad-name field had
+  stale bytes *after* the first NUL terminator, which trailing-strip logic
+  can't remove. Fixed by truncating at the first NUL (C-string semantics)
+  — see `testing/SP404mk2/mk2_notes.txt`'s later 2026-09-18 section.
+
+Both are exactly the kind of gap a synthetic/narrow test fixture won't
+surface — real, "messy" projects with many pads, renamed samples, and
+edited patterns are a much better stress test than this repo's original
+single-kick fixtures. After both fixes, the converter processes this
+project's `--dry` run and a real write cleanly (101 WAVs, 9 tracks, 16
+sequences, all internally consistent). This is still not the same as
+loading it on real MPC hardware/software, which remains the open item
+above.
 
 ## References
 

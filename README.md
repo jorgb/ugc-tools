@@ -14,17 +14,17 @@ For example, extracting the pattern info and samples directly from a SP404mk2 pr
 
 Things I want to eventually accomplish (will most likely change over time)
 
-- [ ] SP404mk2
-  - [ ] `>` Write parser for .PTN file (extract sequence information)
-  - [ ] Write parser for .SMP file (extract chop points, sample data, etc.)
+- [x] SP404mk2
+  - [x] Write parser for .PTN file (extract sequence information)
+  - [x] Write parser for .SMP file (extract sample data; chop points still TODO)
   - [x] Write parser for SP404mk2 PADCONF.BIN format (banks, start / end, play modes)
-- [ ] MPC (MPC Sample / Live III)
-  - [ ] Figure out the XPJ format
-  - [ ] ...
+- [x] MPC (MPC Sample / Live III)
+  - [x] Figure out the XPJ format (see [convert/xpj/DESIGN.md](convert/xpj/DESIGN.md))
+  - [ ] Validate a converted project against real MPC Sample / MPC Live III hardware or software
 - [ ] M8
   - [ ] Parse M8 project file
   - [ ] ...
-- [ ] Convert SP404mk2 project to MPC Projects
+- [x] Convert SP404mk2 project to MPC Projects (see `convert/sp404_to_xpj.py`; unverified against real hardware, see [convert/xpj/DESIGN.md](convert/xpj/DESIGN.md) section 14)
 - [ ] Convert SP404mk2 chop points or several pad to M8
 
 
@@ -35,12 +35,17 @@ Things I want to eventually accomplish (will most likely change over time)
 - sp404 
   - smp.py (import for .SMP file parsing)
   - padconf.py (import for PADCONF.BIN file parsing)
+  - ptn.py (import for .PTN pattern file parsing)
+- convert
+  - xpj (SP404mk2 -> MPC XPJ converter package; see [convert/xpj/DESIGN.md](convert/xpj/DESIGN.md))
+  - sp404_to_xpj.py - converts an SP404mk2 project export to an MPC XPJ project
 - testing 
   - M8 (research to M8 format files)
   - SP404mk2 (research to SP404mk2 format files)
   - wav (research to wav file structure)
 - sp404_smp.py - example tool reading SMP files
 - sp404_padconf.py - example tool reading PADCONF files
+- sp404_ptn.py - example tool reading PTN pattern files
 
 
 ## Installation
@@ -140,6 +145,18 @@ banks:
         name: 001 short hendry - 5PLH
         ...
 ````
+
+To convert an SP404mk2 project export to an MPC XPJ project (see
+[convert/xpj/DESIGN.md](convert/xpj/DESIGN.md) for the full design, its
+limitations, and what's still unverified against real hardware):
+
+```bash
+# --dry logs everything that would be converted and writes nothing
+python convert/sp404_to_xpj.py testing/SP404mk2/pad-sequencer/2026-04-08 /path/to/output --dry
+
+# drop --dry to actually write <ProjectName>.xpj + [Project Data]/Samples/*.wav
+python convert/sp404_to_xpj.py testing/SP404mk2/pad-sequencer/2026-04-08 /path/to/output
+```
 
 ## Credits
 

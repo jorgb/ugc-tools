@@ -27,6 +27,28 @@ raises otherwise — masking with `& 0x0F` first would be a touch more
 defensive, though no evidence has turned up of the upper nibble ever being
 non-zero.
 
+**That "no evidence yet" turned into a real crash on 2026-09-18.** Running
+the converter against a real, older project export
+(`testing/SP404mk2/playy/`, a 101-pad/16-sequence project — much richer
+than this repo's earlier single-kick fixtures) hit
+`PTN00001.BIN`/`PTN00081.BIN` records with byte 2 = `0x40` (e.g.
+`10 3B 40 00 14 40 2C 00`), which `PadID` rejected outright. Fixed exactly
+as anticipated above: `PadID` now masks `pad_toggle & 0x0F` before checking
+it's `0x00`/`0x01`, so the documented-but-previously-unhandled `0x40` bit
+is ignored rather than crashing the converter. Regression test:
+`tests/test_ptn.py::test_pad_id_ignores_unknown_high_bits`.
+
+**Also found against that same real project: the chromatic-pitch baseline
+assumption (§3.2 below, "0x8D is most common") doesn't hold universally.**
+Every single note event across all 16 sequences in that project uses byte
+3 = `0x00`, never `0x8D`. Per SparkyMK2's own description quoted below,
+`0x00` *is* documented as "plain note" (i.e. explicitly not chromatic) —
+so this isn't a new/contradictory finding, just a reminder that "0x8D is
+most common" was true only for this repo's earlier, narrower test
+fixtures. `convert/xpj/mapping.py`'s `is_baseline_chromatic_pitch()` now
+treats both `0x00` and `0x8D` as "no pitch shift, don't warn," instead of
+only `0x8D`.
+
 **Record types: 0x8C and 0x8E are not just "fillers" — this likely answers
 the EXT-IN automation question below.** SparkyMK2 documents record type
 byte 1 more precisely than "any value ≥ 0x80 means no pad": `0x8C` is
