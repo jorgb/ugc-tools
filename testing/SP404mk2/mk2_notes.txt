@@ -68,6 +68,11 @@ for clarity, and (2) adding `pitch_coarse`/`pitch_fine` fields backed by
 words 13/14 if per-pad chromatic tuning is ever needed (e.g. for a
 converter to another format).
 
+**(1) done 2026-09-18** — `sp404.padconf.Pad.pitch_perc` is now
+`time_stretch_perc`. `sp404_padconf.py`, `README.md`, and
+`convert/xpj/DESIGN.md` updated to match. (2) is still open — words 13/14
+aren't read yet.
+
 **Bank BPM `/200` explained.** SparkyMK2's project-settings layout
 (separate from the per-pad table above) documents word `12 + bank` as
 packing **two** things into one 32-bit word: bit 0 = bank protect flag,

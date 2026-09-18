@@ -21,6 +21,6 @@ class Sample:
                 raise ValueError(f"Invalid samplerate: Expected 48000 but got {self.samplerate}")
 
             self.mode = ChannelMode(spr.read_long(f))
-            # sample starts at 0x200 and is stored as 16 bit pairs (one for mono, two for stereo)
-            # somehow we need to add either 2 samples to the size to match
-            self.size = int((raw_samplesize - 0x200 + (self.mode.value * 4)) / self.mode.value * 2)
+            # sample starts at 0x200; raw_samplesize is (file size - 8), so payload
+            # bytes = raw_samplesize - 0x200 + 8, and each frame is 2 bytes per channel
+            self.size = int((raw_samplesize - 0x200 + 8) / (2 * self.mode.value))

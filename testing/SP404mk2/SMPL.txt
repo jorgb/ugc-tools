@@ -62,6 +62,9 @@ need the device or the official app, not just static analysis) — treat it
 as a high-confidence bug candidate, not a confirmed fix, until checked
 against the app the way the original formula below claims to have been.
 
+**Applied 2026-09-18** — `sp404/smp.py`'s `Sample.size` now uses this
+formula.
+
 ## 2025-11-15
 
 Stereo and mono, plus two 16 bit samples?

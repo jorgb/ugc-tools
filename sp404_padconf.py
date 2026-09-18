@@ -45,7 +45,7 @@ def main():
                     'trig_mode': [tm.name for tm in pad.trig_mode],
                     'bus_fx': pad.bus_fx.name,
                     'chromatic': pad.chromatic.name,
-                    'pitch_perc': pad.pitch_perc,
+                    'time_stretch_perc': pad.time_stretch_perc,
                 }
                 
                 if pad.markers:

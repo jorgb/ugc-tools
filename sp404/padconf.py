@@ -91,7 +91,9 @@ class Pad:
         self.bus_fx = BusFX(spr.read_long_b(buf[80:84]) & 0x0F)
         # TODO: Roll not yet implemented
         self.chromatic = Chromatic.parse(spr.read_long_b(buf[40:44]))
-        self.pitch_perc = spr.read_long_b(buf[64:68]) / 100
+        # this is Time Stretch % (5000-15000 -> 50-150%), not pitch - the real
+        # pitch coarse/fine controls live in two fields not yet read here
+        self.time_stretch_perc = spr.read_long_b(buf[64:68]) / 100
 
 
 class Project:
