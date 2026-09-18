@@ -46,6 +46,15 @@ trailer follows — already effectively handled today since the last 16
 bytes are sliced off as the footer) and `0x8E` (extract channel/controller/
 value) before treating everything else ≥ 0x80 as filler.
 
+**Applied 2026-09-18** — `PatternEvent` now special-cases `0x8E` before the
+general `& 0x80` filler check, exposing `midi_channel`/`controller`/
+`controller_value` (`None` for every other record type). `0x8C` still isn't
+special-cased inside `PatternEvent` itself since `Pattern._read` already
+slices the last 16 bytes off as the footer before any 8-byte record ever
+reaches `PatternEvent`, so it never sees a `0x8C` record in practice. The
+converter side (mapping these to an actual XPJ automation event) is still
+unimplemented — see `convert/xpj/DESIGN.md` §3.2.
+
 **Byte 3 (chromatic pitch) is a flag+value, not a raw offset.** SparkyMK2:
 "0 = plain note. Otherwise a pitched note: bit 7 is a flag and bits 0–6 a
 value; `0x8D` is most common, probably the original pitch." This lines up

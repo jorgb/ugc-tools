@@ -1,5 +1,7 @@
 _PADS = "ABCDEFGHIJ"
 
+CONTROL_CHANGE = 0x8E
+
 
 class PadID:
     def __init__(self, pad_nr, pad_toggle):
@@ -28,7 +30,17 @@ class PatternEvent:
             raise ValueError(f"PatternEvent buffer must be 8 bytes, got {len(buf)}")
 
         self.note_offset = buf[0]
-        if buf[1] & 0x80:
+        self.midi_channel = None
+        self.controller = None
+        self.controller_value = None
+
+        if buf[1] == CONTROL_CHANGE:
+            # no pad, this is a control change event (e.g. EXT-IN automation)
+            self.pad_id = None
+            self.midi_channel = buf[2]
+            self.controller = buf[5]
+            self.controller_value = buf[6]
+        elif buf[1] & 0x80:
             # no pad information
             self.pad_id = None
         else:
@@ -39,6 +51,11 @@ class PatternEvent:
 
 
     def __repr__(self):
+        if self.controller is not None:
+            return (f"PatternEvent(time={self.note_offset:3d}, "
+                    f"cc=channel {self.midi_channel} controller {self.controller} "
+                    f"value {self.controller_value})")
+
         pad_name = self.pad_id.name if self.pad_id else "<none>"
         return f"PatternEvent(time={self.note_offset:3d}, velocity={self.velocity}, pad={pad_name})"
 
@@ -56,7 +73,6 @@ class Pattern:
         # TODO: Group pads per same tick offset (e.g. A01, B01 on offset 0x00 should be pattern.events[0] and pattern.events[1])
         # TODO: Skip all filler events in the sequence list
         # TODO: Add tick offset to PatternEvent (max. 1920?)
-        # TODO: Implement missing events
 
         with open(file_path, 'rb') as f:
             data = f.read()
