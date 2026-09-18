@@ -45,6 +45,8 @@ def main():
                     'trig_mode': [tm.name for tm in pad.trig_mode],
                     'bus_fx': pad.bus_fx.name,
                     'chromatic': pad.chromatic.name,
+                    'pitch_coarse': pad.pitch_coarse,
+                    'pitch_fine': pad.pitch_fine,
                     'time_stretch_perc': pad.time_stretch_perc,
                 }
                 

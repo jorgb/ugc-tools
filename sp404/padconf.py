@@ -91,8 +91,11 @@ class Pad:
         self.bus_fx = BusFX(spr.read_long_b(buf[80:84]) & 0x0F)
         # TODO: Roll not yet implemented
         self.chromatic = Chromatic.parse(spr.read_long_b(buf[40:44]))
-        # this is Time Stretch % (5000-15000 -> 50-150%), not pitch - the real
-        # pitch coarse/fine controls live in two fields not yet read here
+        # semitones (-12..12) and cents (-100..100); not verified against the
+        # SP404 app, based on an independent RE project's live protocol spec
+        self.pitch_coarse = spr.read_slong_b(buf[52:56])
+        self.pitch_fine = spr.read_slong_b(buf[56:60])
+        # this is Time Stretch % (5000-15000 -> 50-150%), not pitch
         self.time_stretch_perc = spr.read_long_b(buf[64:68]) / 100
 
 

@@ -13,6 +13,10 @@ def read_long_b(buf):
     return struct.unpack(">L", buf)[0]
 
 
+def read_slong_b(buf):
+    return struct.unpack(">l", buf)[0]
+
+
 def read_string(f, size):
     buf = f.read(size)
     return struct.unpack("%ds" % size, buf)[0].decode('ascii').rstrip('\x00')
