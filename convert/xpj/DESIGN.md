@@ -587,12 +587,29 @@ default slot 3). Dispatch goes through `padNoteMap`, not `lowNote`/
 
 ### 5.3 Pattern → sequence
 
-One `PTN#####.BIN` file → one MPC sequence, in file order. Sequence name
-is derived from the pattern's file index (`PTN00001` → `A01`-style pattern
-names aren't recoverable from the `.BIN` itself — see §11 — so the numeric
-`PTN#####` id is used as the sequence name unless/until a better source is
-found, e.g. the companion `P08-PTN#####.txt` scratch files are debug
-dumps, not shipped project data, and won't exist in a real export).
+One `PTN#####.BIN` file → one MPC sequence. The sequence name is the
+numeric `PTN#####` id (a pattern's own name isn't stored in the `.BIN` — see
+§11 — and the companion `P08-PTN#####.txt` scratch files are debug dumps, not
+shipped project data, and won't exist in a real export).
+
+**Where the sequence goes (2026-09-19).** The SP404 plays pattern *n* from
+pad *n*, and the file number *is* that pad, 16 to a bank
+(`testing/SP404mk2/PTN.txt`: `PTN00013` is pattern A13, `PTN00017` is B01,
+`PTN00081` is F01). The MPC launches sequence *n* from a pad the same way, so
+each sequence is written at the MPC index of the pad it is played from
+(`banking.allocate_sequences`), with the same row flip as the samples
+(§5.6): SP404 pattern A01 (top-left) is MPC sequence 13 (pad 13, top-left),
+A13 is sequence 1. Before this the sequences were packed in file order, so
+`PTN00013` became sequence 11 and pressing a pad launched the wrong pattern.
+
+- Pattern banks A-E keep their bank. Each of F-J moves whole into the lowest
+  bank of 16 that no pattern bank uses (as for sample banks, §5.6); there are
+  8 (assumed to match the drum program's 8 pad banks, unverified), and a
+  pattern bank that finds none is left out with a warning.
+- Sequences between the placed ones are empty `Sequence NN` sequences (named
+  as MPC names a new one), so the sequence numbers stay contiguous; whether
+  MPC would accept gaps is not known. `currentSequence` is the first one with
+  a pattern.
 
 For each event in the pattern (after the `sp404.ptn` extensions in §3.2):
 

@@ -1,3 +1,4 @@
+import copy
 import logging
 import os
 import tempfile
@@ -17,6 +18,10 @@ REFERENCE_XPJ = os.path.join("testing", "MPC", "prj7mpc.xpj")
 # of the pad grid, where the SP404's pads 1-3 are, and where the converter
 # puts them
 SAMPLE_SLOTS = (12, 13, 14)
+
+# The MPC project has its one sequence in slot 0. The converter puts a pattern
+# on the pad it is played from, and PTN00001 is pad A01: MPC sequence 13.
+CONVERTED_SEQUENCE_INDEX = 12
 
 
 def _structure_differences(real, converted, path=""):
@@ -46,6 +51,19 @@ def _value_differences(real, converted, path=""):
     return [] if real == converted else [path]
 
 
+def _keep_only_sequence(project, index):
+    """A copy of project with just the sequence at `index`, moved to slot 0, so
+    its shape can be compared with a project that has a single sequence. The
+    converter fills the sequences around a pattern with empty ones."""
+    project = copy.deepcopy(project)
+    data = project["data"]
+    data["sequences"] = [{"key": 0, "value": data["sequences"][index]["value"]}]
+    data["currentSequence"] = 0
+    for entry in data["clipPlayerData"]["trackClipTransportMap"]:
+        entry["value"] = entry["value"][:1]
+    return project
+
+
 def _drum_events(project):
     clips = project["data"]["sequences"][0]["value"]["trackClipMaps"][0]
     events = clips[0]["value"]["eventList"]["events"]
@@ -61,8 +79,9 @@ class TestReferenceProject(unittest.TestCase):
         cls.model = build_model(SP404_DIR)
         _, cls.real = reader.read_project(REFERENCE_XPJ)
         # through serialize/parse, so the bytes that reach the MPC are what's checked
-        cls.header_lines, cls.converted = reader.parse(
+        cls.header_lines, cls.full_converted = reader.parse(
             writer.serialize(writer.build_project_data(cls.model)))
+        cls.converted = _keep_only_sequence(cls.full_converted, CONVERTED_SEQUENCE_INDEX)
 
     @classmethod
     def tearDownClass(cls):

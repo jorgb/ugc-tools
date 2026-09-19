@@ -60,15 +60,31 @@ class NoteEvent:
 
 
 class SequenceInfo:
-    """One SP404 pattern, converted to MPC sequence terms."""
-    def __init__(self, name, bpm, bars, loop_end_bar):
+    """One SP404 pattern, converted to MPC sequence terms.
+
+    A pattern is played from a pad of the SP404, given by its file number
+    (`PTN00013` is pad A13): `bank_letter` and `local_number`, or None when
+    the number is unknown. `index` is the MPC sequence (0-based) once
+    banking.allocate_sequences() has run, or None if it has no place there.
+    """
+    def __init__(self, name, bpm, bars, loop_end_bar, bank_letter=None, local_number=None):
         self.name = name
         self.bpm = bpm
         self.bars = bars
         self.loop_end_bar = loop_end_bar
+        self.bank_letter = bank_letter
+        self.local_number = local_number
+        self.index = None
         self.length_pulses = bars * mapping.MPC_PULSES_PER_BAR
         self.events = []
         self.control_change_count = 0
+
+    @property
+    def sp404_name(self):
+        """'A13' - the pad that plays this pattern on the SP404."""
+        if self.bank_letter is None:
+            return self.name
+        return f"{self.bank_letter}{self.local_number:02d}"
 
     def add_event(self, event):
         self.events.append(event)
@@ -89,6 +105,8 @@ class ProjectModel:
         self.skipped_pads = []
         # banking.Allocation, set once pads have been given MPC slots
         self.allocation = None
+        # banking.SequenceAllocation, set once patterns have been given MPC sequences
+        self.sequence_allocation = None
 
     def add_bank(self, bank):
         self.banks[bank.letter] = bank
@@ -106,6 +124,15 @@ class ProjectModel:
         return [self.banks[letter].pads[number]
                 for letter in self.used_banks
                 for number in sorted(self.banks[letter].pads)]
+
+    @property
+    def placed_sequences(self):
+        """The sequences that have an MPC sequence, in MPC order."""
+        return sorted((s for s in self.sequences if s.index is not None), key=lambda s: s.index)
+
+    @property
+    def unplaced_sequences(self):
+        return [s for s in self.sequences if s.index is None]
 
     @property
     def mapped_pads(self):

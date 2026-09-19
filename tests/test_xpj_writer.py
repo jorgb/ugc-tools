@@ -78,6 +78,7 @@ class TestXPJWriter(unittest.TestCase):
         for name, tick in [("A01", 0), ("I03", 480), ("F01", 960), ("G01", 960), ("H01", 960)]:
             sequence.add_event(NoteEvent(pads[name], tick, 1.0, 100))
         model.add_sequence(sequence)
+        banking.allocate_sequences(model.sequences)
         model.allocation = banking.allocate(model.pads, sequence.used_pads)
 
         # H04 held the highest slot (127) and nothing plays it, so I03 takes it

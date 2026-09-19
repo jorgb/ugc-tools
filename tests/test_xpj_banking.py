@@ -1,7 +1,8 @@
 import unittest
 
 from convert.xpj import banking, mapping
-from convert.xpj.model import PadSlot
+from sp404.padconf import BANKS
+from convert.xpj.model import PadSlot, SequenceInfo
 
 
 class _FakePad:
@@ -180,6 +181,77 @@ class TestXPJBanking(unittest.TestCase):
         self.assertEqual(len(slots), len(set(slots)))
         self.assertTrue(all(0 <= s < banking.MPC_PAD_COUNT for s in slots))
         self.assertEqual(len(slots), banking.MPC_PAD_COUNT)
+
+
+def _sequence(letter, number):
+    return SequenceInfo(f"PTN{BANKS.index(letter) * 16 + number:05d}", 90.0, 1, 1, letter, number)
+
+
+def _sequences(letter, numbers):
+    return [_sequence(letter, n) for n in numbers]
+
+
+class TestXPJSequenceBanking(unittest.TestCase):
+
+    def test_pattern_pad_1_is_mpc_sequence_pad_13(self):
+        """Verify a pattern sits on the mirrored pad: SP404 A01 (top-left) is MPC sequence 13 (index 12)."""
+        sequences = _sequences("A", [1, 4, 13, 16])
+        banking.allocate_sequences(sequences)
+
+        self.assertEqual([s.index for s in sequences], [12, 15, 0, 3])
+
+    def test_banks_a_to_e_keep_their_bank(self):
+        """Verify pattern banks A-E map onto MPC sequence banks A-E."""
+        sequences = _sequences("A", [1]) + _sequences("C", [1]) + _sequences("E", [16])
+        allocation = banking.allocate_sequences(sequences)
+
+        self.assertEqual([s.index for s in sequences], [12, 44, 67])
+        self.assertEqual(allocation.bank_map, {"A": 0, "C": 2, "E": 4})
+
+    def test_alternate_bank_takes_the_lowest_bank_no_pattern_uses(self):
+        """Verify a pattern bank F moves whole into the first MPC bank that has no patterns."""
+        sequences = _sequences("A", [1]) + _sequences("F", [1, 2]) + _sequences("H", [1])
+        allocation = banking.allocate_sequences(sequences)
+
+        self.assertEqual(allocation.bank_map, {"A": 0, "F": 1, "H": 2})
+        self.assertEqual([s.index for s in sequences], [12, 16 + 12, 16 + 13, 32 + 12])
+        self.assertEqual(allocation.unplaced, [])
+
+    def test_alternate_bank_never_takes_a_bank_a_to_e_pattern_needs(self):
+        """Verify bank F waits for a free MPC bank even when a later A-E bank has patterns."""
+        sequences = _sequences("F", [1]) + _sequences("B", [1])
+        banking.allocate_sequences(sequences)
+
+        self.assertEqual(sequences[1].index, 16 + 12)  # B stays in MPC bank B
+        self.assertEqual(sequences[0].index, 12)       # F takes the free bank A
+
+    def test_patterns_that_fit_no_bank_are_left_unplaced(self):
+        """Verify with all 8 MPC sequence banks used, further pattern banks get no sequence."""
+        sequences = []
+        for letter in "ABCDEFGHIJ":
+            sequences += _sequences(letter, [1])
+        allocation = banking.allocate_sequences(sequences)
+
+        self.assertEqual([s.sp404_name for s in allocation.unplaced], ["I01", "J01"])
+        self.assertTrue(all(s.index is None for s in allocation.unplaced))
+        self.assertEqual(sorted(s.index for s in sequences if s.index is not None),
+                         [b * 16 + 12 for b in range(8)])
+
+    def test_sequences_without_a_pad_take_the_lowest_free_index(self):
+        """Verify a pattern whose pad is unknown fills the first gap, not a pattern's place."""
+        pad_less = SequenceInfo("mystery", 90.0, 1, 1)
+        sequences = _sequences("A", [13]) + [pad_less]  # A13 sits at index 0
+        banking.allocate_sequences(sequences)
+
+        self.assertEqual(pad_less.index, 1)
+
+    def test_allocation_can_be_rerun(self):
+        """Verify allocating again starts from scratch."""
+        sequences = _sequences("A", [1])
+        banking.allocate_sequences(sequences)
+        banking.allocate_sequences(sequences)
+
+        self.assertEqual(sequences[0].index, 12)
 
 
 if __name__ == '__main__':

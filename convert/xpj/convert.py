@@ -5,6 +5,7 @@ MPC XPJ project. See convert/xpj/DESIGN.md.
 
 import logging
 import os
+import re
 
 from sp404.padconf import BANKS, Project
 from sp404.ptn import Pattern
@@ -23,6 +24,21 @@ DEFAULT_BPM = 120.0
 def _smp_path(source_dir, letter, local_number):
     bank_number = BANKS.index(letter) + 1
     return os.path.join(source_dir, "SMPL", f"BANK{bank_number}-{local_number:02d}.SMP")
+
+
+_PATTERN_NAME = re.compile(r"^PTN(\d+)$", re.IGNORECASE)
+
+
+def _pattern_pad(sequence_name):
+    """'PTN00013' -> ('A', 13): a pattern's file number is the SP404 pad that
+    plays it, counting 16 pads to a bank (see testing/SP404mk2/PTN.txt).
+    (None, None) for a name that isn't a pattern number."""
+    match = _PATTERN_NAME.match(sequence_name)
+    if match:
+        index = int(match.group(1)) - 1
+        if 0 <= index < len(BANKS) * banking.PADS_PER_BANK:
+            return BANKS[index // banking.PADS_PER_BANK], index % banking.PADS_PER_BANK + 1
+    return None, None
 
 
 def _split_pad_name(name):
@@ -86,7 +102,9 @@ def _build_sequences(pattern_dir, banks, default_bpm):
 
         pattern = Pattern(os.path.join(pattern_dir, filename))
         sequence_name = os.path.splitext(filename)[0]
-        sequence = SequenceInfo(sequence_name, default_bpm, pattern.bars, pattern.loop_end_bar)
+        bank_letter, local_number = _pattern_pad(sequence_name)
+        sequence = SequenceInfo(sequence_name, default_bpm, pattern.bars, pattern.loop_end_bar,
+                                bank_letter, local_number)
 
         for event in pattern.events:
             if event.controller is not None:
@@ -133,6 +151,8 @@ def build_model(source_dir, project_name=None):
     default_bpm = banks[model.used_banks[0]].bpm if model.used_banks else DEFAULT_BPM
     for sequence in _build_sequences(os.path.join(source_dir, "PTN"), banks, default_bpm):
         model.add_sequence(sequence)
+
+    model.sequence_allocation = banking.allocate_sequences(model.sequences)
 
     sequenced = set().union(*(sequence.used_pads for sequence in model.sequences))
     model.allocation = banking.allocate(model.pads, sequenced)
@@ -201,14 +221,28 @@ def _log_summary(model):
     for pad, reason in model.skipped_pads:
         log.warning("Skipped pad %d: %s", pad.pad_nr, reason)
 
+    sequence_allocation = model.sequence_allocation
+    for letter, target in sequence_allocation.bank_map.items():
+        log.info("SP404 pattern bank %s -> MPC sequence bank %s%s", letter,
+                 banking.bank_letter(target), "" if banking.bank_letter(target) == letter else " (relocated)")
+
     for sequence in model.sequences:
-        log.info("Sequence '%s' -> %d bar(s) (%d pulses) @ %.2f BPM, "
+        if sequence.index is None:
+            where = "NO MPC SEQUENCE"
+        else:
+            bank, number = divmod(sequence.index, banking.PADS_PER_BANK)
+            where = f"MPC sequence {sequence.index + 1} (pad {banking.bank_letter(bank)}{number + 1:02d})"
+        log.info("Sequence '%s' (pattern %s) -> %s: %d bar(s) (%d pulses) @ %.2f BPM, "
                   "%d note event(s) on %d pad(s)",
-                  sequence.name, sequence.bars, sequence.length_pulses, sequence.bpm,
-                  len(sequence.events), len(sequence.used_pads))
+                  sequence.name, sequence.sp404_name, where, sequence.bars, sequence.length_pulses,
+                  sequence.bpm, len(sequence.events), len(sequence.used_pads))
         if sequence.control_change_count:
             log.info("  %d control-change event(s) skipped (no automation mapping yet)",
                       sequence.control_change_count)
+
+    for sequence in sequence_allocation.unplaced:
+        log.warning("Pattern %s ('%s') has no MPC sequence (no free sequence bank), skipped",
+                    sequence.sp404_name, sequence.name)
 
 
 def convert_project(source_dir, output_dir, project_name=None, dry_run=False):

@@ -13,6 +13,11 @@ PADS_PER_ROW = 4
 PAD_ROWS = PADS_PER_BANK // PADS_PER_ROW
 MPC_PAD_COUNT = MPC_BANK_COUNT * PADS_PER_BANK
 
+# MPC launches sequences from the same pad grid, 16 to a bank. The limit is
+# assumed to match the 8 banks of a drum program (unverified on hardware).
+MPC_SEQUENCE_BANK_COUNT = 8
+MPC_SEQUENCE_COUNT = MPC_SEQUENCE_BANK_COUNT * PADS_PER_BANK
+
 # SP404 banks A-E are the five bank buttons; F-J are the same buttons
 # pressed a second time
 PRIMARY_BANK_COUNT = 5
@@ -27,6 +32,15 @@ class Allocation:
         self.moved = []
         # pads that lost their slot to a pad played by a pattern
         self.evicted = []
+
+
+class SequenceAllocation:
+    """What banking.allocate_sequences() did, for logging."""
+    def __init__(self):
+        # SP404 pattern bank letter -> MPC sequence bank index (0-7)
+        self.bank_map = {}
+        # patterns that found no MPC sequence
+        self.unplaced = []
 
 
 def bank_letter(mpc_bank_index):
@@ -137,5 +151,66 @@ def allocate(pads, sequenced):
                 if free is None:
                     return allocation
                 place(pad, free)
+
+    return allocation
+
+
+def allocate_sequences(sequences):
+    """Sets sequence.index (0-based MPC sequence, or None) on every sequence.
+
+    The MPC launches sequence n from a pad, 16 sequences to a pad bank, like
+    the SP404 does with patterns, so a pattern goes where its SP404 pad is on
+    the pad grid (see bank_slot): pattern A01 (top-left) is MPC sequence 13
+    (pad 13, top-left). In order:
+
+    1. Pattern banks A-E keep their bank (A -> MPC bank A ... E -> E).
+    2. Each of banks F-J moves whole into the lowest MPC bank that no other
+       pattern bank uses; with none free its patterns are left unplaced.
+    3. Sequences whose pad is unknown (`bank_letter` None) take the lowest
+       free sequences, left unplaced when there are none.
+
+    Sequences between the ones placed are empty (see writer.py). Returns a
+    SequenceAllocation.
+    """
+    allocation = SequenceAllocation()
+    taken = set()
+    used_banks = set()
+
+    banks = {}
+    loose = []
+    for sequence in sequences:
+        sequence.index = None
+        if sequence.bank_letter is None:
+            loose.append(sequence)
+        else:
+            banks.setdefault(sequence.bank_letter, []).append(sequence)
+    letters = sorted(banks, key=BANKS.index)
+
+    def place_bank(letter, mpc_bank):
+        for sequence in banks[letter]:
+            sequence.index = mpc_bank * PADS_PER_BANK + bank_slot(sequence.local_number)
+            taken.add(sequence.index)
+        used_banks.add(mpc_bank)
+        allocation.bank_map[letter] = mpc_bank
+
+    for letter in letters:
+        if BANKS.index(letter) < PRIMARY_BANK_COUNT:
+            place_bank(letter, BANKS.index(letter))
+
+    for letter in letters:
+        if BANKS.index(letter) >= PRIMARY_BANK_COUNT:
+            free = next((b for b in range(MPC_SEQUENCE_BANK_COUNT) if b not in used_banks), None)
+            if free is None:
+                allocation.unplaced.extend(banks[letter])
+            else:
+                place_bank(letter, free)
+
+    for sequence in loose:
+        free = next((i for i in range(MPC_SEQUENCE_COUNT) if i not in taken), None)
+        if free is None:
+            allocation.unplaced.append(sequence)
+        else:
+            sequence.index = free
+            taken.add(free)
 
     return allocation

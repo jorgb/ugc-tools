@@ -14,8 +14,6 @@ from . import template
 from . import wav
 from .model import SequenceInfo
 
-DEFAULT_SEQUENCE_NAME = "Sequence 01"
-
 # MPC's own name for the first drum track
 DRUM_TRACK_NAME = "Drum 001"
 
@@ -117,13 +115,23 @@ def build_project_data(model):
     # MPC keeps its own submix/output tracks after the drum tracks
     data["tracks"].insert(0, track)
 
-    # an MPC project always has at least one sequence
-    sequences = model.sequences or [SequenceInfo(DEFAULT_SEQUENCE_NAME, data["masterTempo"], 1, 1)]
-    for index, sequence_info in enumerate(sequences):
+    # A sequence sits at its own MPC index, which is where its pad is (see
+    # banking.allocate_sequences), so the ones between are empty. An MPC
+    # project always has at least one sequence.
+    placed = model.placed_sequences
+    if any(s.index is None for s in model.sequences) and not model.sequence_allocation:
+        raise ValueError("sequences have no MPC index: run banking.allocate_sequences() first")
+    by_index = {s.index: s for s in placed}
+    count = max(by_index) + 1 if by_index else 1
+    for index in range(count):
+        sequence_info = by_index.get(index) or SequenceInfo(
+            f"Sequence {index + 1:02d}", data["masterTempo"], 1, 1)
         data["sequences"].append({"key": index, "value": build_sequence(sequence_info, track["name"])})
+    # open on the first sequence that has something in it
+    template.assign(data, "currentSequence", min(by_index) if by_index else 0)
 
     data["clipPlayerData"]["trackClipTransportMap"] = [
-        {"key": name, "value": [{"key": index, "value": 0} for index in range(len(sequences))]}
+        {"key": name, "value": [{"key": index, "value": 0} for index in range(count)]}
         for name in sorted(track["name"] for track in data["tracks"])
     ]
 
