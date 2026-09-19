@@ -152,7 +152,11 @@ To convert an SP404mk2 project export to an MPC XPJ project (see
 limitations, and what's still unverified against real hardware):
 
 ```bash
-# --dry logs everything that would be converted and writes nothing
+# The SP404 has 160 pads (banks A-J), an MPC Sample drum program 128 (8 banks): pads that
+# patterns play always get an MPC pad (banks F-J are relocated into free MPC banks), and
+# samples that don't fit go to <ProjectName>_[ProjectData]/Unmapped Samples/
+
+# --dry logs everything that would be converted (including where each pad lands) and writes nothing
 python convert/sp404_to_xpj.py testing/SP404mk2/pad-sequencer/2026-04-08 /path/to/output --dry
 
 # drop --dry to actually write <ProjectName>.xpj + <ProjectName>_[ProjectData]/*.wav

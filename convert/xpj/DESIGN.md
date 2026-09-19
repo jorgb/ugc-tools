@@ -518,6 +518,12 @@ grid is 1920 ticks per bar (§3.2), the tick→pulse scale factor is a clean
 
 ### 5.1 Bank → track/program (the 160-pad vs. 128-slot problem)
 
+> **Superseded 2026-09-19 (section 5.6).** The design below - one MPC track
+> per SP404 bank - is no longer what the converter does. An MPC Sample
+> works with a single 128-pad drum program (8 banks of 16), so every SP404
+> pad is now assigned a pad of **one** drum track, "Drum 001", by
+> `banking.allocate()`. The reasoning below is kept for the record.
+
 An SP404mk2 project has 10 banks (`A`..`J`) × 16 pads = 160 pads. A single
 MPC drum program has 128 instrument slots — this ceiling is corroborated
 independently by MPCTK's own addressing helper
@@ -557,8 +563,10 @@ no separate index bookkeeping needed.
 
 ### 5.2 Pad → instrument slot & MIDI note
 
-Within a bank's drum program, pad `n` (1-indexed, 1..16) maps to
-instrument slot `n - 1` and MIDI note `36 + (n - 1)` (notes 36..51).
+The drum program has 128 slots; slot `s` plays MIDI note
+`(36 + s) % 128` (`mapping.slot_note`), which pad the SP404 pad lands on is
+decided by `banking.allocate()` (§5.6). MPC pad `A01` is slot 0 (note 36),
+`B01` slot 16 (note 52).
 
 **Corrected 2026-09-19 (section 15):** this section used to say
 `36 + n` and to fill `padNoteMap` for the used slots only. A real MPC
@@ -582,9 +590,9 @@ For each event in the pattern (after the `sp404.ptn` extensions in §3.2):
 
 1. Resolve `pad_id.name` (e.g. `"B07"`) to a bank letter (`B`) and local
    pad number (`7`).
-2. Look up that bank's track by **name** (the letter itself, since
-   `trackClipMaps` keys by track name, not index — §4.3, §5.1). Skipped
-   empty banks simply have no corresponding entry.
+2. ~~Look up that bank's track by name~~ (superseded, §5.6): every event
+   goes into the single drum track's clip, and its note comes from the MPC
+   pad the SP404 pad was assigned - so it changes when a pad is moved.
 3. Emit a type-3 note event into that track's clip for this sequence,
    following the nested event shape from §4.3 (`{"type": 3, "time": ...,
    "note": {...}}`, not a flat dict):
@@ -689,6 +697,49 @@ sound to two pads (that copies the audio into two separate files). So
 populated pad slot, with no dedup logic at all — simpler than originally
 planned here, and confirmed correct against the fixture (`BANK1-01.SMP` ↔
 pad A01, `BANK2-01.SMP` ↔ pad B01).
+
+### 5.6 Assigning SP404 pads to the MPC's 128 pads (2026-09-19)
+
+The SP404 has 10 banks (A-E, and F-J on a second press of the same five
+buttons): 160 pads. A MPC Sample drum program has 8 banks of 16: 128 pads.
+`convert/xpj/banking.py` (`allocate()`) gives every populated SP404 pad an
+MPC slot 0-127 (`PadSlot.slot`; MPC pad `bank * 16 + n - 1`), with one
+priority: **a pad that any pattern plays must always get a pad**. In order:
+
+1. **Banks A-E stay where they are** (SP404 A -> MPC A ... E -> E).
+2. **Each of banks F-J that has a played pad moves whole** into the lowest
+   MPC bank that is still completely free (in order F, G, H, I, J). With
+   A-E all populated that is F, G, H; if, say, bank C is empty, bank F
+   takes MPC bank C instead.
+3. **No whole bank free:** each remaining played pad takes the lowest free
+   slot ("a free spot in an earlier bank"). With no free slot at all, it
+   takes the *highest* slot whose pad no pattern plays; that pad becomes
+   unmapped. **If every pad on the MPC is played, that is an error**
+   (`ValueError`, nothing is written).
+4. **Banks F-J that no pattern plays** move whole into any bank still free.
+5. **Every pad still without a slot** fills the lowest remaining free slot in
+   SP404 order (nothing is evicted for these).
+6. Whatever still has no slot is **unmapped** - the MPC is full.
+
+The sequence writer takes each event's note from the pad it plays
+(`NoteEvent.note` = `slot_note(pad.slot)`), so events follow a moved pad
+automatically. Notes are `(36 + slot) % 128` (see §5.2) - unique for all 128
+slots; the map wraps at slot 92.
+
+**Unmapped samples are still converted.** Each goes to
+`<name>_[ProjectData]/Unmapped Samples/<same filename>.wav` and is not
+referenced from the `.xpj` at all. Whether the MPC accepts that extra folder
+in `_[ProjectData]` is **unverified**. Per-bank BPM is no longer meaningful
+in one program: `masterTempo` and every sequence's BPM come from the first
+SP404 bank that has a pad.
+
+Open decisions in this rule set (easy to change, see `banking.py`):
+
+- "next free bank" is the *lowest* free MPC bank, not the position-matched
+  one, so banks F-J may end up ahead of MPC F-H when A-E have gaps.
+- Step 2 relocates a *whole* bank even when only one of its pads is played.
+- Free slots in step 3/5 are taken lowest-first, ignoring which SP404 bank
+  the neighbours came from.
 
 ## 6. SMP → WAV conversion
 
@@ -796,6 +847,7 @@ convert/
                             # NoteEvent, SequenceInfo, ProjectModel - decoupled
                             # from both sp404's raw structs and MPC's JSON
     mapping.py             # the tables in §5.4 as data + pure functions
+    banking.py             # SP404 pads -> the MPC's 128 pads (§5.6)
     wav.py                 # SMP -> WAV (§6)
     writer.py              # template mutation, gzip/header framing,
                             # on-disk _[ProjectData] layout (§4.2, §9)
@@ -826,6 +878,8 @@ python convert/sp404_to_xpj.py <sp404-export-folder> <output-folder> [--project-
     A01 - <pad name>.wav
     A02 - <pad name>.wav
     ...
+    Unmapped Samples/         only when some pad has no MPC pad (§5.6)
+      J07 - <pad name>.wav
 ```
 
 `<ProjectName>` here is already space-free (`writer.sanitize_project_name()`,

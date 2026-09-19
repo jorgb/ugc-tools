@@ -33,8 +33,12 @@ def main():
     if not os.path.isfile(padconf_path):
         parser.error(f"{args.source} does not contain a PADCONF.BIN")
 
-    convert_project(args.source, args.destination,
-                     project_name=args.project_name, dry_run=args.dry)
+    try:
+        convert_project(args.source, args.destination,
+                         project_name=args.project_name, dry_run=args.dry)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

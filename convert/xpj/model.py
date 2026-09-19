@@ -9,19 +9,33 @@ from . import mapping
 
 
 class PadSlot:
-    """One populated SP404 pad, resolved to its MPC note, sample info and
-    the WAV filename it will be written under."""
-    def __init__(self, pad, local_number, note, wav_filename, smp_path, sample_info):
+    """One populated SP404 pad, its sample, and where it lands on the MPC.
+
+    `slot` is the MPC drum program pad (0..127) once banking.allocate() has
+    run, or None if the pad has no place there (it is then written to the
+    project's "Unmapped Samples" folder instead).
+    """
+    def __init__(self, pad, bank_letter, local_number, wav_filename, smp_path, sample_info):
         self.pad = pad
+        self.bank_letter = bank_letter
         self.local_number = local_number
-        self.note = note
         self.wav_filename = wav_filename
         self.smp_path = smp_path
         self.sample_info = sample_info
+        self.slot = None
+
+    @property
+    def sp404_name(self):
+        """'F03' - the pad as the SP404 shows it."""
+        return f"{self.bank_letter}{self.local_number:02d}"
+
+    @property
+    def note(self):
+        return None if self.slot is None else mapping.slot_note(self.slot)
 
 
-class BankTrack:
-    """One SP404 bank that has at least one populated pad, i.e. one MPC track."""
+class Bank:
+    """One SP404 bank that has at least one populated pad."""
     def __init__(self, letter, bpm):
         self.letter = letter
         self.bpm = bpm
@@ -32,13 +46,17 @@ class BankTrack:
 
 
 class NoteEvent:
-    """One pattern note, already scaled to MPC pulses and resolved to a bank."""
-    def __init__(self, bank_letter, tick_pulses, note, velocity, length_pulses):
-        self.bank_letter = bank_letter
+    """One pattern note, already scaled to MPC pulses. The MPC note comes
+    from the pad it plays, so it follows wherever banking put that pad."""
+    def __init__(self, pad_slot, tick_pulses, velocity, length_pulses):
+        self.pad_slot = pad_slot
         self.tick_pulses = tick_pulses
-        self.note = note
         self.velocity = velocity
         self.length_pulses = length_pulses
+
+    @property
+    def note(self):
+        return self.pad_slot.note
 
 
 class SequenceInfo:
@@ -56,8 +74,8 @@ class SequenceInfo:
         self.events.append(event)
 
     @property
-    def used_banks(self):
-        return sorted({event.bank_letter for event in self.events})
+    def used_pads(self):
+        return {event.pad_slot for event in self.events}
 
 
 class ProjectModel:
@@ -66,12 +84,14 @@ class ProjectModel:
         self.project_name = project_name
         self.banks = {}
         self.sequences = []
-        # (pad, reason) for pads that couldn't be mapped, e.g. a missing
+        # (pad, reason) for pads that couldn't be read, e.g. a missing
         # or unreadable .SMP file
         self.skipped_pads = []
+        # banking.Allocation, set once pads have been given MPC slots
+        self.allocation = None
 
-    def add_bank(self, bank_track):
-        self.banks[bank_track.letter] = bank_track
+    def add_bank(self, bank):
+        self.banks[bank.letter] = bank
 
     def add_sequence(self, sequence_info):
         self.sequences.append(sequence_info)
@@ -79,3 +99,18 @@ class ProjectModel:
     @property
     def used_banks(self):
         return sorted(self.banks.keys())
+
+    @property
+    def pads(self):
+        """Every populated pad, in SP404 order (bank, then pad number)."""
+        return [self.banks[letter].pads[number]
+                for letter in self.used_banks
+                for number in sorted(self.banks[letter].pads)]
+
+    @property
+    def mapped_pads(self):
+        return sorted((p for p in self.pads if p.slot is not None), key=lambda p: p.slot)
+
+    @property
+    def unmapped_pads(self):
+        return [p for p in self.pads if p.slot is None]

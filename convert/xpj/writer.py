@@ -16,6 +16,12 @@ from .model import SequenceInfo
 
 DEFAULT_SEQUENCE_NAME = "Sequence 01"
 
+# MPC's own name for the first drum track
+DRUM_TRACK_NAME = "Drum 001"
+
+# samples that have no pad on the MPC go here, inside _[ProjectData]
+UNMAPPED_SAMPLES_DIR = "Unmapped Samples"
+
 
 def sanitize_project_name(project_name):
     """MPC project names must not contain spaces - collapse whitespace to
@@ -27,18 +33,18 @@ def _project_data_dir(output_dir, safe_name):
     return os.path.join(output_dir, f"{safe_name}_[ProjectData]")
 
 
-def build_track(bank_track):
-    """Builds one drum track dict for a populated SP404 bank.
+def build_track(model):
+    """Builds the one drum track holding every pad that has an MPC slot.
 
     Only fields that already exist in the template are set (template.assign),
-    and padNoteMap is left at MPC's default: pad n plays note 36 + n - 1.
+    and padNoteMap is left at MPC's default (mapping.slot_note).
     """
     assign = template.assign
-    track = template.empty_track(bank_track.letter)
+    track = template.empty_track(DRUM_TRACK_NAME)
     drum = track["program"]["drum"]
 
-    for local_number, pad_slot in bank_track.pads.items():
-        slot_index = local_number - 1
+    for pad_slot in model.mapped_pads:
+        slot_index = pad_slot.slot
         pad = pad_slot.pad
 
         instrument = template.sampled_instrument()
@@ -74,26 +80,24 @@ def build_track(bank_track):
     return track
 
 
-def build_sequence(sequence_info, drum_track_names):
+def build_sequence(sequence_info, drum_track_name):
     """Builds one sequence dict. Like MPC, every track gets a clip in every
-    sequence (empty unless the bank has events), sorted by track name."""
+    sequence (empty for all but the drum track), sorted by track name."""
     assign = template.assign
     sequence = template.empty_sequence(sequence_info.name, sequence_info.bpm,
                                         sequence_info.bars, sequence_info.loop_end_bar)
 
-    clips = {name: template.empty_clip(name, sequence_info.length_pulses)
-             for name in drum_track_names}
-
+    clip = template.empty_clip(drum_track_name, sequence_info.length_pulses)
     for event in sorted(sequence_info.events, key=lambda e: (e.tick_pulses, e.note)):
         note_event = template.empty_note_event()
         assign(note_event, "time", event.tick_pulses)
         assign(note_event["note"], "note", event.note)
         assign(note_event["note"], "velocity", event.velocity)
         assign(note_event["note"], "length", event.length_pulses)
-        clips[event.bank_letter]["eventList"]["events"].append(note_event)
+        clip["eventList"]["events"].append(note_event)
 
     row = sequence["trackClipMaps"][0]
-    row.extend({"key": name, "value": clip} for name, clip in clips.items())
+    row.append({"key": drum_track_name, "value": clip})
     row.sort(key=lambda entry: entry["key"])
 
     return sequence
@@ -107,19 +111,15 @@ def build_project_data(model):
     if model.used_banks:
         template.assign(data, "masterTempo", model.banks[model.used_banks[0]].bpm)
 
-    drum_tracks = []
-    for letter in model.used_banks:
-        track = build_track(model.banks[letter])
-        drum_tracks.append(track)
-        data["samples"].extend(track["samples"])
+    track = build_track(model)
+    data["samples"].extend(track["samples"])
     # MPC keeps its own submix/output tracks after the drum tracks
-    data["tracks"][:0] = drum_tracks
-    drum_track_names = [track["name"] for track in drum_tracks]
+    data["tracks"].insert(0, track)
 
     # an MPC project always has at least one sequence
     sequences = model.sequences or [SequenceInfo(DEFAULT_SEQUENCE_NAME, data["masterTempo"], 1, 1)]
     for index, sequence_info in enumerate(sequences):
-        data["sequences"].append({"key": index, "value": build_sequence(sequence_info, drum_track_names)})
+        data["sequences"].append({"key": index, "value": build_sequence(sequence_info, track["name"])})
 
     data["clipPlayerData"]["trackClipTransportMap"] = [
         {"key": name, "value": [{"key": index, "value": 0} for index in range(len(sequences))]}
@@ -142,24 +142,27 @@ def serialize(project_data):
     return gzip.compress(payload)
 
 
+def _wav_path(pad_slot, project_data_dir):
+    if pad_slot.slot is None:
+        return os.path.join(project_data_dir, UNMAPPED_SAMPLES_DIR, pad_slot.wav_filename)
+    return os.path.join(project_data_dir, pad_slot.wav_filename)
+
+
 def planned_paths(model, output_dir):
     """Computes every path write_project() would write, without touching disk."""
     safe_name = sanitize_project_name(model.project_name)
     xpj_path = os.path.join(output_dir, f"{safe_name}.xpj")
     # samples live directly in _[ProjectData]/, not a Samples/ subfolder -
-    # MPC Sample couldn't find them when they were nested one level deeper
+    # MPC Sample couldn't find them when they were nested one level deeper.
+    # Pads with no MPC pad are the exception: they go in "Unmapped Samples".
     project_data_dir = _project_data_dir(output_dir, safe_name)
-    wav_paths = [
-        os.path.join(project_data_dir, pad_slot.wav_filename)
-        for letter in model.used_banks
-        for pad_slot in model.banks[letter].pads.values()
-    ]
+    wav_paths = [_wav_path(pad_slot, project_data_dir) for pad_slot in model.pads]
     return xpj_path, project_data_dir, wav_paths
 
 
 def write_project(model, output_dir):
     """Writes <name>.xpj and <name>_[ProjectData]/ (with the WAVs directly
-    inside it) for model.
+    inside it, and those without an MPC pad in Unmapped Samples/) for model.
 
     Returns (xpj_path, project_data_dir, wav_paths).
     """
@@ -170,10 +173,8 @@ def write_project(model, output_dir):
     with open(xpj_path, 'wb') as f:
         f.write(serialize(project_data))
 
-    os.makedirs(project_data_dir, exist_ok=True)
-    for letter in model.used_banks:
-        for pad_slot in model.banks[letter].pads.values():
-            wav_path = os.path.join(project_data_dir, pad_slot.wav_filename)
-            wav.write_wav(pad_slot.sample_info, pad_slot.smp_path, wav_path)
+    for pad_slot, wav_path in zip(model.pads, wav_paths):
+        os.makedirs(os.path.dirname(wav_path), exist_ok=True)
+        wav.write_wav(pad_slot.sample_info, pad_slot.smp_path, wav_path)
 
     return xpj_path, project_data_dir, wav_paths

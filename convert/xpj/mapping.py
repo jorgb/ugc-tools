@@ -46,13 +46,14 @@ def clamp(value, bounds):
     return max(lo, min(hi, value))
 
 
-def pad_note(local_pad_nr):
-    """local_pad_nr is 1..16; returns the MPC note assigned to that slot.
+def slot_note(slot):
+    """MPC note played by drum program pad `slot` (0..127).
 
-    Slot n-1 plays note 36 + (n-1), MPC's own default padNoteMap - confirmed
-    against the reference project, where pad 13 (slot 12) plays note 48. The
-    map is therefore never edited (DESIGN.md section 5.2)."""
-    return MPC_NOTE_BASE + local_pad_nr - 1
+    Read from the reference project's padNoteMap: note = (36 + slot) % 128,
+    so pad A01 plays 36, pad 13 plays 48, and the map wraps past slot 91
+    (slot 92 plays note 0). All 128 notes are distinct. The map is never
+    edited (DESIGN.md section 5.2)."""
+    return (MPC_NOTE_BASE + slot) % 128
 
 
 def instrument_volume(pad):

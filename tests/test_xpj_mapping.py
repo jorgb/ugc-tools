@@ -10,11 +10,17 @@ class TestXPJMapping(unittest.TestCase):
         self.assertTrue(mapping.is_baseline_chromatic_pitch(0x8D))  # common default-pitch encoding
         self.assertFalse(mapping.is_baseline_chromatic_pitch(0x87))  # genuinely shifted, e.g. "Pitch Chromatic -6"
 
-    def test_pad_note_is_mpcs_default_note_for_the_slot(self):
-        """Verify pad n (slot n-1) plays note 36 + n - 1, the padNoteMap default."""
-        self.assertEqual(mapping.pad_note(1), 36)
-        self.assertEqual(mapping.pad_note(13), 48)  # the real MPC project's pad 13
-        self.assertEqual(mapping.pad_note(16), 51)
+    def test_slot_note_is_mpcs_default_pad_note_map(self):
+        """Verify slot n plays note (36 + n) % 128, as in the real project's padNoteMap."""
+        self.assertEqual(mapping.slot_note(0), 36)
+        self.assertEqual(mapping.slot_note(12), 48)  # the real MPC project's pad 13
+        self.assertEqual(mapping.slot_note(91), 127)
+        self.assertEqual(mapping.slot_note(92), 0)  # the map wraps
+        self.assertEqual(mapping.slot_note(127), 35)
+
+    def test_slot_note_is_unique_for_all_128_slots(self):
+        """Verify no two pads of a drum program play the same note."""
+        self.assertEqual(len({mapping.slot_note(s) for s in range(128)}), 128)
 
     def test_instrument_volume_uses_mpc_unity_gain(self):
         """Verify SP404 volume 127 is exactly MPC's 0 dB value and lower volumes scale from it."""

@@ -10,9 +10,10 @@ from sp404.padconf import BANKS, Project
 from sp404.ptn import Pattern
 from sp404.smp import Sample
 
+from . import banking
 from . import mapping
 from . import writer
-from .model import BankTrack, NoteEvent, PadSlot, ProjectModel, SequenceInfo
+from .model import Bank, NoteEvent, PadSlot, ProjectModel, SequenceInfo
 
 log = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ def _split_pad_name(name):
 
 
 def _build_banks(source_dir, project):
-    """Reads every populated pad and groups them into BankTrack objects.
+    """Reads every populated pad and groups them into Bank objects.
 
     Each populated SP404 pad owns its own dedicated .SMP file (confirmed
     against this repo's own fixtures - see convert/xpj/DESIGN.md section
@@ -62,14 +63,13 @@ def _build_banks(source_dir, project):
             skipped_pads.append((pad, str(exc)))
             continue
 
-        bank_track = banks.get(letter)
-        if bank_track is None:
-            bank_track = BankTrack(letter, project.bank_bpms.get(letter, DEFAULT_BPM))
-            banks[letter] = bank_track
+        bank = banks.get(letter)
+        if bank is None:
+            bank = Bank(letter, project.bank_bpms.get(letter, DEFAULT_BPM))
+            banks[letter] = bank
 
-        note = mapping.pad_note(local_number)
         wav_filename = f"{letter}{local_number:02d} - {pad.name}.wav"
-        bank_track.add_pad(PadSlot(pad, local_number, note, wav_filename, smp_path, sample_info))
+        bank.add_pad(PadSlot(pad, letter, local_number, wav_filename, smp_path, sample_info))
 
     return banks, skipped_pads
 
@@ -96,8 +96,8 @@ def _build_sequences(pattern_dir, banks, default_bpm):
                 continue
 
             letter, local_number = _split_pad_name(event.pad_id.name)
-            bank_track = banks.get(letter)
-            if bank_track is None or local_number not in bank_track.pads:
+            bank = banks.get(letter)
+            if bank is None or local_number not in bank.pads:
                 log.warning("sequence %s references pad %s which has no sample, skipping event",
                             sequence_name, event.pad_id.name)
                 continue
@@ -107,11 +107,10 @@ def _build_sequences(pattern_dir, banks, default_bpm):
                             "(byte=0x%02X), not applied - see DESIGN.md section 11",
                             sequence_name, event.pad_id.name, event.chromatic_pitch)
 
-            pad_slot = bank_track.pads[local_number]
+            pad_slot = bank.pads[local_number]
             sequence.add_event(NoteEvent(
-                letter,
+                pad_slot,
                 event.absolute_tick * mapping.TICK_SCALE,
-                pad_slot.note,
                 mapping.note_velocity(event.velocity),
                 mapping.note_length_pulses(pad_slot.pad, event.gate_ticks),
             ))
@@ -127,56 +126,83 @@ def build_model(source_dir, project_name=None):
 
     model = ProjectModel(project_name or project.project_name)
     banks, skipped_pads = _build_banks(source_dir, project)
-    for bank_track in banks.values():
-        model.add_bank(bank_track)
+    for bank in banks.values():
+        model.add_bank(bank)
     model.skipped_pads = skipped_pads
 
     default_bpm = banks[model.used_banks[0]].bpm if model.used_banks else DEFAULT_BPM
     for sequence in _build_sequences(os.path.join(source_dir, "PTN"), banks, default_bpm):
         model.add_sequence(sequence)
 
+    sequenced = set().union(*(sequence.used_pads for sequence in model.sequences))
+    model.allocation = banking.allocate(model.pads, sequenced)
+
     return model
 
 
 def _log_summary(model):
-    total_pads = sum(len(bank.pads) for bank in model.banks.values())
-    log.info("Project '%s': %d bank(s), %d pad(s), %d sequence(s)",
-              model.project_name, len(model.banks), total_pads, len(model.sequences))
+    log.info("Project '%s': %d SP404 bank(s), %d pad(s), %d sequence(s)",
+              model.project_name, len(model.banks), len(model.pads), len(model.sequences))
 
+    allocation = model.allocation
     for letter in model.used_banks:
-        bank_track = model.banks[letter]
-        log.info("Bank %s -> MPC track '%s' (%.2f BPM), %d pad(s)",
-                  letter, letter, bank_track.bpm, len(bank_track.pads))
+        bpm = model.banks[letter].bpm
+        if letter in allocation.bank_map:
+            target = banking.bank_letter(allocation.bank_map[letter])
+            log.info("SP404 bank %s (%.2f BPM) -> MPC bank %s%s", letter, bpm,
+                     target, "" if target == letter else " (relocated)")
+        else:
+            log.info("SP404 bank %s (%.2f BPM) -> not placed as a whole bank", letter, bpm)
 
-        for local_number in sorted(bank_track.pads):
-            pad_slot = bank_track.pads[local_number]
-            pad = pad_slot.pad
-            duration = pad_slot.sample_info.size / pad_slot.sample_info.samplerate
-            trig = "+".join(t.name for t in pad.trig_mode)
-            log.info("  pad %s%02d '%s' -> note %d: %.2fs (%d frames, %s, %d Hz), "
-                     "vol %d, trig=%s, play=%s -> %s",
-                     letter, local_number, pad.name, pad_slot.note, duration,
-                     pad_slot.sample_info.size, pad_slot.sample_info.mode.name,
-                     pad_slot.sample_info.samplerate, pad.vol, trig,
-                     pad.play_mode.name, pad_slot.wav_filename)
+    for pad_slot in model.pads:
+        pad = pad_slot.pad
+        duration = pad_slot.sample_info.size / pad_slot.sample_info.samplerate
+        trig = "+".join(t.name for t in pad.trig_mode)
+        if pad_slot.slot is None:
+            where = "UNMAPPED"
+        else:
+            bank, number = divmod(pad_slot.slot, banking.PADS_PER_BANK)
+            where = f"MPC pad {banking.bank_letter(bank)}{number + 1:02d} (note {pad_slot.note})"
+        log.info("  pad %s '%s' -> %s: %.2fs (%d frames, %s, %d Hz), "
+                 "vol %d, trig=%s, play=%s -> %s",
+                 pad_slot.sp404_name, pad.name, where, duration,
+                 pad_slot.sample_info.size, pad_slot.sample_info.mode.name,
+                 pad_slot.sample_info.samplerate, pad.vol, trig,
+                 pad.play_mode.name, pad_slot.wav_filename)
 
-            if mapping.is_fixed_velocity(pad):
-                log.warning("  pad %s%02d: FIXED_VELOCITY has no MPC pad field, not applied",
-                            letter, local_number)
+        if mapping.is_fixed_velocity(pad):
+            log.warning("  pad %s: FIXED_VELOCITY has no MPC pad field, not applied",
+                        pad_slot.sp404_name)
 
-            if mapping.is_pingpong(pad):
-                log.warning("  pad %s%02d: %s has no MPC layer equivalent, degraded to %s",
-                            letter, local_number, pad.play_mode.name,
-                            "reverse" if mapping.layer_direction(pad) else "forward")
+        if mapping.is_pingpong(pad):
+            log.warning("  pad %s: %s has no MPC layer equivalent, degraded to %s",
+                        pad_slot.sp404_name, pad.play_mode.name,
+                        "reverse" if mapping.layer_direction(pad) else "forward")
+
+    for pad_slot in allocation.moved:
+        bank, number = divmod(pad_slot.slot, banking.PADS_PER_BANK)
+        log.warning("Pad %s is played by a pattern but its bank found no free MPC bank: "
+                    "moved to MPC pad %s%02d, its notes follow it",
+                    pad_slot.sp404_name, banking.bank_letter(bank), number + 1)
+
+    for pad_slot in allocation.evicted:
+        log.warning("Pad %s ('%s') lost its MPC pad to a pad a pattern plays",
+                    pad_slot.sp404_name, pad_slot.pad.name)
+
+    unmapped = model.unmapped_pads
+    if unmapped:
+        log.warning("%d of %d pad(s) have no MPC pad and go to '%s': %s",
+                    len(unmapped), len(model.pads), writer.UNMAPPED_SAMPLES_DIR,
+                    ", ".join(p.sp404_name for p in unmapped))
 
     for pad, reason in model.skipped_pads:
         log.warning("Skipped pad %d: %s", pad.pad_nr, reason)
 
     for sequence in model.sequences:
         log.info("Sequence '%s' -> %d bar(s) (%d pulses) @ %.2f BPM, "
-                  "%d note event(s) across %d track(s)",
+                  "%d note event(s) on %d pad(s)",
                   sequence.name, sequence.bars, sequence.length_pulses, sequence.bpm,
-                  len(sequence.events), len(sequence.used_banks))
+                  len(sequence.events), len(sequence.used_pads))
         if sequence.control_change_count:
             log.info("  %d control-change event(s) skipped (no automation mapping yet)",
                       sequence.control_change_count)

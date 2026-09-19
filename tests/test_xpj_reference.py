@@ -131,7 +131,7 @@ class TestReferenceProject(unittest.TestCase):
         data = self.converted["data"]
         names = sorted(t["name"] for t in data["tracks"])
 
-        self.assertEqual(names, ["A", "Out 1/2", "Out 3/4", "Submix 1"])
+        self.assertEqual(names, ["Drum 001", "Out 1/2", "Out 3/4", "Submix 1"])
         for sequence in data["sequences"]:
             self.assertEqual([c["key"] for c in sequence["value"]["trackClipMaps"][0]], names)
         self.assertEqual([e["key"] for e in data["clipPlayerData"]["trackClipTransportMap"]], names)
