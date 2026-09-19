@@ -31,8 +31,44 @@ class TestXPJMapping(unittest.TestCase):
 
     def test_sample_region_end_is_the_last_frame(self):
         """Verify SP404 sample_end (one past the last frame) becomes MPC's inclusive End."""
-        self.assertEqual(mapping.sample_region(_Pad(sample_start=0, sample_end=7380)), (0, 7379))
-        self.assertEqual(mapping.sample_region(_Pad(sample_start=100, sample_end=0)), (100, 0))
+        self.assertEqual(mapping.sample_region(_Pad(sample_start=0, sample_end=7380, hold=100)), (0, 7379))
+        self.assertEqual(mapping.sample_region(_Pad(sample_start=100, sample_end=0, hold=100)), (100, 0))
+
+    def test_hold_is_the_share_of_the_region_that_plays(self):
+        """Verify HOLD 50 ends the region at its middle, counted from the region's start."""
+        self.assertEqual(mapping.sample_region(_Pad(sample_start=0, sample_end=1000, hold=50)), (0, 499))
+        self.assertEqual(mapping.sample_region(_Pad(sample_start=200, sample_end=1200, hold=25)), (200, 449))
+        self.assertEqual(mapping.sample_region(_Pad(sample_start=0, sample_end=1000, hold=1)), (0, 9))
+
+    def test_hold_never_empties_the_region(self):
+        """Verify a very short region still plays at least one frame."""
+        self.assertEqual(mapping.sample_region(_Pad(sample_start=0, sample_end=10, hold=1)), (0, 0))
+
+    def test_envelope_of_an_untouched_pad_changes_nothing(self):
+        """Verify attack 0 and release 0 (the SP404 defaults) leave MPC's own envelope alone."""
+        pad = _Pad(attack=0, hold=100, release=0, gate=True, trig_mode=[TrigMode.NORMAL])
+        self.assertEqual(mapping.amp_envelope(pad), {})
+
+    def test_attack_keeps_its_place_on_the_dial(self):
+        """Verify attack 0-127 becomes MPC's 0-1 attack in the same proportion."""
+        pad = _Pad(attack=11, hold=100, release=0, gate=False, trig_mode=[TrigMode.NORMAL])
+        self.assertEqual(mapping.amp_envelope(pad), {"Attack": 11 / 127})
+        self.assertEqual(mapping.amp_envelope(_Pad(attack=127, hold=100, release=0, gate=False,
+                                                    trig_mode=[TrigMode.NORMAL])), {"Attack": 1.0})
+
+    def test_release_of_a_gated_pad_is_mpcs_release_on_an_adsr_envelope(self):
+        """Verify GATE on: the fade-out at pad release is MPC's Release, and the envelope follows note-off."""
+        pad = _Pad(attack=2, hold=100, release=14, gate=True, trig_mode=[TrigMode.NORMAL])
+        self.assertEqual(mapping.amp_envelope(pad),
+                         {"Attack": 2 / 127, "Release": 14 / 127, "AD": False, "OneShot": False})
+
+    def test_release_of_a_one_shot_pad_is_mpcs_decay_from_the_end(self):
+        """Verify GATE off: the fade-out at the end of the sound is MPC's Decay, and the envelope stays a one-shot."""
+        pad = _Pad(attack=0, hold=100, release=3, gate=False, trig_mode=[TrigMode.NORMAL])
+        self.assertEqual(mapping.amp_envelope(pad), {"Decay": 3 / 127})
+        # the pad's One Shot flag plays through even with GATE on, so it is treated the same
+        flagged = _Pad(attack=0, hold=100, release=3, gate=True, trig_mode=[TrigMode.ONE_SHOT])
+        self.assertEqual(mapping.amp_envelope(flagged), {"Decay": 3 / 127})
 
     def test_sample_tempo_is_zero_unless_bpm_synced(self):
         """Verify the sample tempo stays 0.0 (MPC's "unknown") for unsynced pads."""

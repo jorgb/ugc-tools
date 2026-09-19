@@ -170,6 +170,44 @@ class TestXPJConvert(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join("does", "not", "exist")))
 
 
+    def test_pad_envelope_reaches_the_mpc_pad(self):
+        """Verify a pad with attack 11, hold 46 and release 57 fades and ends like the SP404's."""
+        with tempfile.TemporaryDirectory() as tmp:
+            source = os.path.join(tmp, "PRJ")
+            shutil.copytree(PROJECT_DIR, source)
+            padconf_path = os.path.join(source, "PADCONF.BIN")
+            with open(padconf_path, "rb") as f:
+                buf = bytearray(f.read())
+            # pad A01 (gate off) and pad A02 (gate on): attack (word 22), hold (word 23), release (word 24)
+            for pad_offset, (attack, hold, release) in [(0, (11, 46, 57)), (172, (2, 100, 14))]:
+                for word, value in [(22, attack), (23, hold), (24, release)]:
+                    struct.pack_into(">L", buf, PAD_RECORDS_OFFSET + pad_offset + word * 4, value)
+            with open(padconf_path, "wb") as f:
+                f.write(buf)
+
+            model = build_model(source)
+
+        instruments = writer.build_project_data(model)["data"]["tracks"][0]["program"]["drum"]["instruments"]
+        pad_a01, pad_a02, untouched = instruments[12], instruments[13], instruments[14]
+        frames = model.banks["A"].pads[1].sample_info.size
+
+        # A01: GATE off, so the release is the fade-out at the end, which is at 46 % of the sample
+        env = pad_a01["synthSection"]["ampEnvelope"]
+        self.assertAlmostEqual(env["Attack"]["value0"], 11 / 127)
+        self.assertAlmostEqual(env["Decay"]["value0"], 57 / 127)
+        self.assertEqual(env["Release"]["value0"], 0.0)
+        self.assertTrue(env["AD"]["value0"])
+        self.assertEqual(pad_a01["layersv"][0]["sliceInfo"]["End"], round(frames * 46 / 100) - 1)
+        # A02: GATE on, so the release is the fade-out when the pad is let go
+        env = pad_a02["synthSection"]["ampEnvelope"]
+        self.assertAlmostEqual(env["Attack"]["value0"], 2 / 127)
+        self.assertAlmostEqual(env["Release"]["value0"], 14 / 127)
+        self.assertFalse(env["AD"]["value0"])
+        self.assertFalse(env["OneShot"]["value0"])
+        # a pad with the default envelope keeps MPC's own
+        self.assertAlmostEqual(untouched["synthSection"]["ampEnvelope"]["Attack"]["value0"], 2 / 127)
+        self.assertTrue(untouched["synthSection"]["ampEnvelope"]["AD"]["value0"])
+
     def test_pad_pitch_volume_and_gate_reach_the_mpc_pad(self):
         """Verify a pad set to pitch -5, volume 41 and GATE on lands as tune -5, that level and Note On."""
         with tempfile.TemporaryDirectory() as tmp:

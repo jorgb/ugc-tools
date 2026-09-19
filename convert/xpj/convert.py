@@ -193,6 +193,13 @@ def _log_summary(model):
                  mapping.TriggerMode(mapping.trigger_mode(pad)).name,
                  trig, pad.play_mode.name, pad_slot.wav_filename)
 
+        if mapping.amp_envelope(pad) or pad.hold < mapping.SP404_HOLD_RANGE[1]:
+            log.info("  pad %s: envelope attack %d, hold %d%%, release %d -> amp envelope %s%s",
+                     pad_slot.sp404_name, pad.attack, pad.hold, pad.release,
+                     ", ".join(f"{k} {v:.3f}" if isinstance(v, float) else f"{k} {v}"
+                               for k, v in mapping.amp_envelope(pad).items()) or "unchanged",
+                     f", ends at frame {mapping.sample_region(pad)[1]}" if pad.hold < mapping.SP404_HOLD_RANGE[1] else "")
+
         if mapping.is_fixed_velocity(pad):
             log.warning("  pad %s: FIXED_VELOCITY has no MPC pad field, not applied",
                         pad_slot.sp404_name)

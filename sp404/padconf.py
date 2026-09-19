@@ -102,6 +102,12 @@ class Pad:
         # 2^(semitones/12) here (pad A01 at pitch -5 reads 7491 = 74.91%,
         # and coarse/fine stay 0). With BPM sync on it is a real time stretch.
         self.speed_perc = spr.read_long_b(buf[64:68]) / 100
+        # ENVELOPE page (SHIFT + PITCH/SPEED). Attack and release are fade
+        # times, 0-127 with 127 = 3 seconds; hold is the share of the sample
+        # that plays, 1-100 %. Untouched pads read 0 / 100 / 0.
+        self.attack = spr.read_long_b(buf[88:92])
+        self.hold = spr.read_long_b(buf[92:96])
+        self.release = spr.read_long_b(buf[96:100])
 
 
 class Project:

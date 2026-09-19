@@ -24,6 +24,11 @@ TICK_SCALE = MPC_PULSES_PER_BAR // SP404_TICKS_PER_BAR  # 2
 COARSE_TUNE_RANGE = (-24, 24)
 FINE_TUNE_RANGE = (-90, 90)
 
+# SP404 ENVELOPE page: attack and release are 0-127 (127 = 3 s), hold is the
+# percentage of the sample that plays
+SP404_ENVELOPE_MAX = 127
+SP404_HOLD_RANGE = (1, 100)
+
 # Byte 3 of a pattern event: 0x00 is a plain, unpitched note; a byte with
 # bit 7 set is a chromatic note with the pitch in bits 0-6, of which 0x8D
 # (value 0x0D) is the common/default encoding seen so far. Both are
@@ -65,8 +70,16 @@ def instrument_volume(pad):
 def sample_region(pad):
     """Inclusive (first, last) frame of the pad's playback region. The SP404's
     sample_end is one past the last frame; MPC's sliceInfo End is the last
-    frame itself (an untouched sample of N frames has End N-1)."""
-    return pad.sample_start, max(pad.sample_end - 1, 0)
+    frame itself (an untouched sample of N frames has End N-1).
+
+    The SP404's envelope HOLD is the percentage of the region that plays (at
+    50 the sample stops at its middle), so the region ends there."""
+    first, last = pad.sample_start, max(pad.sample_end - 1, 0)
+    hold = clamp(pad.hold, SP404_HOLD_RANGE)
+    if hold < SP404_HOLD_RANGE[1]:
+        frames = max(last - first + 1, 0)
+        last = first + max(round(frames * hold / 100), 1) - 1
+    return first, last
 
 
 def sample_tempo(pad):
@@ -115,6 +128,36 @@ def stretch_percentage(pad):
     """MPC's time stretch. Only a BPM-synced pad has one; for the rest the
     Speed field was already applied as pitch (see pitch_cents)."""
     return pad.speed_perc if pad.bpm_sync else 100.0
+
+
+def amp_envelope(pad):
+    """The MPC amp envelope fields (synthSection.ampEnvelope.<name>.value0) to
+    change so the pad fades like the SP404's ENVELOPE page; empty when the pad
+    has no attack or release, so it keeps MPC's own defaults.
+
+    Attack and release are carried over at the same position on the 0-127 dial
+    (MPC stores its own as k/127); the SP404's 3 seconds at 127 is not
+    converted to MPC's seconds, which are unverified.
+
+    - Attack is the fade-in.
+    - GATE off: the SP404 plays to the end of the hold range and fades out
+      there, which is MPC's Decay (its envelope decays from the end).
+    - GATE on: the fade-out starts when the pad is released, which is MPC's
+      Release, on an ADSR envelope that responds to note-off rather than the
+      default AD one-shot.
+    """
+    fields = {}
+    if pad.attack > 0:
+        fields["Attack"] = clamp(pad.attack, (0, SP404_ENVELOPE_MAX)) / SP404_ENVELOPE_MAX
+    if pad.release > 0:
+        release = clamp(pad.release, (0, SP404_ENVELOPE_MAX)) / SP404_ENVELOPE_MAX
+        if trigger_mode(pad) == TriggerMode.NOTE_ON:
+            fields["Release"] = release
+            fields["AD"] = False
+            fields["OneShot"] = False
+        else:
+            fields["Decay"] = release
+    return fields
 
 
 def is_looping(pad):

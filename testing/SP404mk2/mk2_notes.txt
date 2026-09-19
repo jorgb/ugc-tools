@@ -1,3 +1,24 @@
+### 2026-09-19 (later) — ENVELOPE page: words 22-24 = attack, hold, release
+
+Words 22, 23 and 24 of the pad record (byte offsets 88, 92, 96) are the
+ENVELOPE page (SHIFT + PITCH/SPEED). Roland's SP-404MK2 reference manual
+("Making fade-in/fade-out settings (ENVELOPE)") and SparkyMK2 give:
+
+- word 22 ATTACK, 0-127: fade-in time; 127 = 3 seconds
+- word 23 HOLD, 1-100 %: the share of the sample that plays, not an
+  envelope stage. At 50 the sample plays from the start to its middle, and
+  the fade-in and fade-out happen inside that range
+- word 24 RELEASE, 0-127: fade-out time; 127 = 3 seconds. With GATE on the
+  fade-out starts when the pad is let go
+
+Defaults are 0 / 100 / 0 (every tracked fixture reads exactly that).
+`testing/SP404mk2/playy` has 23 pads with something set: attack up to 11,
+release up to 57, and hold 70 on pad F08 and 46 on F14. Whether the time
+scale between 0 and 127 is linear is not documented.
+
+Converter: `Pad.attack/hold/release`; hold moves the pad's sample End,
+attack and release go to the MPC amp envelope (`mapping.amp_envelope`).
+
 ### 2026-09-19 — pad pitch lives in the Speed field (word 16), not Pitch Coarse/Fine
 
 Converting `testing/SP404mk2/playy/` gave MPC pad A01 a tune of 0 although the

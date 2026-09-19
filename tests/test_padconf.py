@@ -12,6 +12,12 @@ class TestSP404Padconf(unittest.TestCase):
         self.assertEqual(pad.pitch_fine, 0)
         self.assertEqual(pad.speed_perc, 100.0)
 
+    def test_envelope_defaults(self):
+        """Verify attack 0, hold 100 (the whole sample) and release 0 read as untouched defaults."""
+        pad = Project("testing/SP404mk2/pad-params/PADCONF.BIN").pads[0]
+
+        self.assertEqual((pad.attack, pad.hold, pad.release), (0, 100, 0))
+
 
 if __name__ == '__main__':
     unittest.main()

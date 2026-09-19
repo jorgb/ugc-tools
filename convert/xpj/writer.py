@@ -55,6 +55,9 @@ def build_track(model):
         assign(instrument, "triggerMode", mapping.trigger_mode(pad))
         assign(instrument, "stretchPercentage", mapping.stretch_percentage(pad))
         assign(instrument["mixable"], "volume", mapping.instrument_volume(pad))
+        amp_envelope = instrument["synthSection"]["ampEnvelope"]
+        for name, value in mapping.amp_envelope(pad).items():
+            assign(amp_envelope[name], "value0", value)
         if pad.bpm_sync:
             assign(instrument, "tempo", pad.bpm)
             assign(instrument, "bpmLock", True)
