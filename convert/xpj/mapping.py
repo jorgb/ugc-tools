@@ -10,6 +10,10 @@ from sp404.padconf import PlayMode, TrigMode
 
 MPC_NOTE_BASE = 36
 
+# 0 dB on every MPC volume control (track, mixer, pad); 1.0 is +3 dB. Read
+# from the reference project's untouched pads (convert/xpj/template.py).
+MPC_UNITY_VOLUME = 0.7079457640647888
+
 SP404_TICKS_PER_BAR = 1920
 MPC_PULSES_PER_QUARTER = 960
 MPC_BEATS_PER_BAR = 4
@@ -43,12 +47,29 @@ def clamp(value, bounds):
 
 
 def pad_note(local_pad_nr):
-    """local_pad_nr is 1..16; returns the MPC note assigned to that slot."""
-    return MPC_NOTE_BASE + local_pad_nr
+    """local_pad_nr is 1..16; returns the MPC note assigned to that slot.
+
+    Slot n-1 plays note 36 + (n-1), MPC's own default padNoteMap - confirmed
+    against the reference project, where pad 13 (slot 12) plays note 48. The
+    map is therefore never edited (DESIGN.md section 5.2)."""
+    return MPC_NOTE_BASE + local_pad_nr - 1
 
 
 def instrument_volume(pad):
-    return pad.vol / 127.0
+    """SP404 volume 127 is unity gain, which is MPC_UNITY_VOLUME (not 1.0)."""
+    return MPC_UNITY_VOLUME * (pad.vol / 127.0)
+
+
+def sample_region(pad):
+    """Inclusive (first, last) frame of the pad's playback region. The SP404's
+    sample_end is one past the last frame; MPC's sliceInfo End is the last
+    frame itself (an untouched sample of N frames has End N-1)."""
+    return pad.sample_start, max(pad.sample_end - 1, 0)
+
+
+def sample_tempo(pad):
+    """MPC leaves a sample's tempo at 0.0 unless it has a known one."""
+    return pad.bpm if pad.bpm_sync else 0.0
 
 
 def note_velocity(byte_velocity):

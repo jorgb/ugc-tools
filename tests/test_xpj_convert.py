@@ -42,18 +42,20 @@ class TestXPJConvert(unittest.TestCase):
         model = build_model(FIXTURE_DIR)
         project = writer.build_project_data(model)
 
-        self.assertEqual(project["formatVersion"], 2)
+        self.assertEqual(list(project), ["data"])
         data = project["data"]
-        self.assertEqual([t["name"] for t in data["tracks"]], ["A", "B"])
+        # drum tracks first, then MPC's own fixed submix/output tracks
+        self.assertEqual([t["name"] for t in data["tracks"]], ["A", "B", "Submix 1", "Out 1/2", "Out 3/4"])
         self.assertEqual(len(data["sequences"]), len(model.sequences))
         self.assertEqual(data["masterTempo"], 90.0)
 
         track_a = data["tracks"][0]
         layer = track_a["program"]["drum"]["instruments"][0]["layersv"][0]
-        self.assertTrue(layer["active"])
         self.assertEqual(layer["sampleFile"], "A01 - indust - houst kck - AR.wav")
         self.assertEqual(layer["sampleName"], "indust - houst kck - AR")
-        self.assertEqual(track_a["program"]["padNoteMap"]["noteForPad"]["value0"], 37)
+        # padNoteMap is left at MPC's default: slot 0 plays note 36
+        self.assertEqual(track_a["program"]["padNoteMap"]["noteForPad"]["value0"], 36)
+        self.assertEqual(model.banks["A"].pads[1].note, 36)
 
     def test_planned_paths_match_written_paths(self):
         """Verify dry-run path planning doesn't touch disk but matches what write_project would use."""

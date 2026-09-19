@@ -160,6 +160,10 @@ def _log_summary(model):
                      pad_slot.sample_info.samplerate, pad.vol, trig,
                      pad.play_mode.name, pad_slot.wav_filename)
 
+            if mapping.is_fixed_velocity(pad):
+                log.warning("  pad %s%02d: FIXED_VELOCITY has no MPC pad field, not applied",
+                            letter, local_number)
+
             if mapping.is_pingpong(pad):
                 log.warning("  pad %s%02d: %s has no MPC layer equivalent, degraded to %s",
                             letter, local_number, pad.play_mode.name,

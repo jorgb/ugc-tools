@@ -12,7 +12,7 @@ class TestXPJReader(unittest.TestCase):
         project = template.empty_project()
         header_lines, project_data = reader.parse(writer.serialize(project))
 
-        self.assertEqual(header_lines, template.HEADER_LINES)
+        self.assertEqual(header_lines, template.header_lines())
         self.assertEqual(project_data, project)
 
     def test_accepts_uncompressed_xpj(self):

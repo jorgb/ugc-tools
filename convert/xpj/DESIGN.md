@@ -214,7 +214,7 @@ An `.xpj` file (firmware 3.x, which covers MPC Live III / MPC Sample) is:
 ```
 gzip(
   "ACVS\n"
-  "<firmware-version>\n"       e.g. "3.7.0.56"
+  "<firmware-version>\n"       "1.3.0.12" in a real MPC-saved project (section 15)
   "SerialisableProjectData\n"
   "json\n"
   "Linux\n"
@@ -228,7 +228,9 @@ header lines, joins them with `"\n"`, appends another `"\n"`, then the raw
 JSON text, encodes to UTF-8, and gzips the whole byte string. There is no
 extra framing beyond that.
 
-The JSON body is `{"formatVersion": 2, "data": {...}}`. Detection of 3.x
+The JSON body is `{"data": {...}}` - **a real MPC-saved project has no
+`formatVersion` key** (section 15; the `formatVersion: 2` seen in the
+community docs' examples is not what the hardware writes). Detection of 3.x
 vs. the older XML-based 2.x format is by magic bytes only (`1F 8B` = gzip
 = 3.x; `3C 3F 78 6D 6C` = `<?xml` = 2.x). We only need to *write* 3.x.
 
@@ -300,7 +302,6 @@ own JSON sample, which matches real project shape):
 
 ```
 {
-  "formatVersion": 2,
   "data": {
     "version": 28,
     "key": "C Major",
@@ -444,7 +445,7 @@ Sequence (`data.sequences[n].value`), confirmed against
     "timeSignatures": [ {"beatsPerBar": 4, "beatLength": 960, "barStart": 0} ]
   },
   "trackClipMaps": [ [ {"key": "<track name string>", "value": <clip>}, ... ] ],
-  "seqEventList": {},          # always empty; content lives in clips
+  "seqEventList": {...},       # NOT an empty {}: a full eventList object with no events (section 15)
   "locators": { ... },         # 6 named markers, copy from template
   "loopStartPulses": 0, "loopEndPulses": <int>,
   "autoSelectTrackIndex": -1
@@ -557,22 +558,16 @@ no separate index bookkeeping needed.
 ### 5.2 Pad → instrument slot & MIDI note
 
 Within a bank's drum program, pad `n` (1-indexed, 1..16) maps to
-instrument slot `n - 1` and MIDI note `36 + n` (i.e. notes 37..52). This
-is a deliberately simple, sequential scheme — not an attempt to match
-MPC's own factory default `padNoteMap` (which, per the real
-`track-drum.json` example, uses a scattered GM-style layout like
-`36, 37, 42, 82, 40, 38, 46, 44, ...` for a standard acoustic kit). That
-default is irrelevant to us: `padNoteMap` is fully data-driven per
-project, and dispatch of an incoming note to a pad/instrument goes through
-`padNoteMap`, not through each instrument's own `lowNote`/`highNote` range
-— real drum instruments are observed with `lowNote: 0, highNote: 127`
-(the full range) and rely on `padNoteMap` for routing. So `lowNote`/
-`highNote` can be left at the template default (0–127) for every
-instrument we populate; only `padNoteMap` needs per-pad values.
+instrument slot `n - 1` and MIDI note `36 + (n - 1)` (notes 36..51).
 
-`padNoteMap.noteForPad` is populated with `value(n-1) = 36 + n` for the 16
-used slots; unused slots (pads 17..128) keep whatever the template
-provides.
+**Corrected 2026-09-19 (section 15):** this section used to say
+`36 + n` and to fill `padNoteMap` for the used slots only. A real MPC
+project shows `padNoteMap.noteForPad.value{i} = 36 + i` for the first
+slots (the pad you press is note 36 + its index; e.g. pad 13 plays note
+48), so the writer now never edits `padNoteMap` at all. The old scheme left
+unused slots at 0 and gave note 39 to two different pads (used slot 2 and
+default slot 3). Dispatch goes through `padNoteMap`, not `lowNote`/
+`highNote` (left at the template's 0-127).
 
 ### 5.3 Pattern → sequence
 
@@ -594,7 +589,7 @@ For each event in the pattern (after the `sp404.ptn` extensions in §3.2):
    following the nested event shape from §4.3 (`{"type": 3, "time": ...,
    "note": {...}}`, not a flat dict):
    - `time` = `absolute_tick * 2` (§4.3 scale factor)
-   - `note.note` = `36 + local_pad_number` (§5.2)
+   - `note.note` = `36 + local_pad_number - 1` (§5.2)
    - `note.velocity` = `event.velocity / 127.0`
    - `note.length` = `(gate_ticks + 1) * 2`, falling back to a one-bar
      default (`3840`) when the pad's trig mode is `ONE_SHOT` and gate
@@ -626,22 +621,22 @@ footer (§3.2).
 
 | SP404 (`sp404.padconf.Pad`) | MPC field | Notes |
 |---|---|---|
-| `vol` (0-127) | `instruments[i].mixable.volume` | `vol / 127.0` — `mixable.volume` is a plain float (§4.0), unlike layer volume |
+| `vol` (0-127) | `instruments[i].mixable.volume` | `0.7079457640647888 * vol / 127` — `mixable.volume` is a plain float (§4.0), unlike layer volume. MPC's 0 dB is `0.7079…`, not `1.0` (which is +3 dB); every untouched pad, track and mixer volume in the real project is `0.7079…` |
 | `gate` (bool) | `instruments[i].triggerMode` | `True` → `1` (Note Off / gated); `False` → `0` (One Shot), unless `trig_mode` has `LOOP` (below) |
 | `TrigMode.ONE_SHOT` in `trig_mode` | `instruments[i].triggerMode` | forces `0` regardless of `gate` |
 | `TrigMode.LOOP` in `trig_mode` | `layersv[0].loop` | `True`; see loop row below |
-| `TrigMode.FIXED_VELOCITY` in `trig_mode` | *(no direct MPC field)* | approximate by setting the instrument's `velocityScale` to flatten dynamics; flagged as best-effort in §11 |
+| `TrigMode.FIXED_VELOCITY` in `trig_mode` | *(no MPC field - not applied)* | the instrument has no `velocityScale` key at all in a real project (section 15), so the earlier approximation was inventing a field. Now only logged as a warning; flattening the pad's note velocities to 127 in the sequence would be the faithful alternative |
 | `mute_group` (`Bank` enum) | `instruments[i].whichMuteGroup` | `NONE`→`0`, `A`..`J`→`1..10` (bank-local numbering is fine since mute groups are scoped per program already) |
 | `pad_link` (`Bank` enum) | `instruments[i].simultPlayTargets` | best-effort; SP404 pad-link semantics aren't fully reverse-engineered (§11) — mapped as "also trigger the linked pad's slot" |
-| `bpm_sync` (bool) | `instruments[i].bpmLock` / `warpEnable` | direct |
-| `bpm` (float) | `instruments[i].tempo` | direct |
-| `time_stretch_perc` (%, 100=normal) | `instruments[i].stretchPercentage` | direct — both are already percentages (100=no change), no unit conversion needed. Formerly mapped to `coarseTune`/`fineTune` under the (incorrect) name `pitch_perc`; see §3.4/§11 |
+| `bpm_sync` (bool) | `instruments[i].bpmLock` / `warpEnable` | only touched when sync is on (both `True`); otherwise MPC's own loaded-pad defaults (`bpmLock: true, warpEnable: false`) are kept |
+| `bpm` (float) | `instruments[i].tempo`, sample pool `metadata.tempo` | only when `bpm_sync`; the sample-pool tempo is `0.0` ("unknown") otherwise, like MPC writes |
+| `time_stretch_perc` (%, 100=normal) | `instruments[i].stretchPercentage` | direct (written as an **integer**, like the real file: `100`, not `100.0`) — both are already percentages (100=no change), no unit conversion needed. Formerly mapped to `coarseTune`/`fineTune` under the (incorrect) name `pitch_perc`; see §3.4/§11 |
 | `pitch_coarse` / `pitch_fine` (semitones/cents) | `instruments[i].coarseTune` / `fineTune` | direct, but clamp to MPC's real limits: `[-24, 24]` semitones, `[-90, 90]` cents — confirmed hardware limits from MPCTK's `COARSE_TUNE_MIN/MAX`, `FINE_TUNE_MIN/MAX`. SP404's own range is narrower (`-12..12` semitones, `-100..100` cents per the external RE project), so it always fits without clamping in practice; not yet verified against a real non-zero value on hardware — see §11 |
 | `chromatic` (`MONO`/`LEGATO`/`POLY`) | *(program-level `drum.monophonic`/`drum.poliphony`, not per-pad — see §4.3)* | approximate at the whole-track level using the pad's own value if pads disagree within a bank, log a warning (§11) |
 | `play_mode` (`FORWARD`/`REVERSE`/`FWD_PINGPONG`/`REV_PINGPONG`) | `layersv[0].direction` | `FORWARD`→`0`, `REVERSE`/`REV_PINGPONG`→`1`; ping-pong itself has no documented MPC layer field, so it degrades to plain forward/reverse with a logged warning |
 | `bus_fx` | *(dropped)* | explicitly out of scope |
 | `name` | sample-pool `name`, `layersv[0].sampleName` | display name, no extension |
-| `sample_start` / `sample_end` | `layersv[0].sampleStart` / `sampleEnd` | direct, in frames — no physical audio trimming (§5.5) |
+| `sample_start` / `sample_end` | `layersv[0].sliceInfo.Start` / `End` | `Start = sample_start`, `End = sample_end - 1` (SP404 end is one past the last frame; MPC's `End` is the last frame). MPC itself stores the region here and leaves `layersv[0].sampleStart/sampleEnd` at 0 for an untrimmed sample. **Trimmed pads are unverified** (the reference has none) — no physical audio trimming (§5.5) |
 | `loop_start` | `layersv[0].loopStart` | direct; `loopEnd` = `sample_end` |
 | `markers` | *(ignored)* | see §5.5 |
 
@@ -772,17 +767,31 @@ risk has **not actually been bounded in the current implementation**. §10's
 manual hardware/software validation checklist is the way to find out what,
 if anything, real hardware is missing from `template.py`'s output.
 
+**Update 2026-09-19: the real template now exists.** `template.py` no longer
+builds anything by hand. `convert/xpj/template/mpc_project.xpj` is an
+unmodified project saved by a real MPC (`testing/MPC/prj7mpc.xpj`), and
+`template.py` cuts its pieces out of it at load: the project with only the
+fixed submix/output tracks, a blank 128-pad drum track, a "loaded" pad
+(a blank pad as MPC leaves it after loading a sample), a sample-pool entry,
+an empty clip, a note event and a sequence. The writer mutates only fields
+that already exist (`template.assign`, which also keeps each field's JSON
+type - MPC parses strictly). This closes the biggest open risk in §14: the
+synthetic template was the reason the first converted project would not
+load (section 15).
+
 ## 8. Module layout
 
 ```
 convert/
   __init__.py             # makes `convert` importable as a package (for tests)
   sp404_to_xpj.py         # CLI entry point, see below
+  xpj_to_json.py          # CLI: extract an .xpj to pretty-printed JSON for diffing
   xpj/
     DESIGN.md              (this file)
     __init__.py
-    template.py            # synthetic template pieces (§7) - would become
-                            # template-JSON loading if a real capture shows up
+    template.py            # template pieces cut from template/mpc_project.xpj (§7)
+    template/mpc_project.xpj  # a project saved by a real MPC
+    reader.py              # XPJ -> (header, JSON), inverse of writer.serialize()
     model.py               # intermediate representation: PadSlot, BankTrack,
                             # NoteEvent, SequenceInfo, ProjectModel - decoupled
                             # from both sp404's raw structs and MPC's JSON
@@ -1062,6 +1071,62 @@ project's own fixtures can't catch everything either):
    no longer has a `SAMPLES_SUBDIR` concept at all.
 
 Both are now covered by `tests/test_xpj_writer.py`.
+
+## 15. Verification against a real MPC project (2026-09-19)
+
+`testing/SP404mk2/projects/PRJ7SP404` and `testing/MPC/prj7mpc.xpj` are the
+same 3 samples and 2-bar sequence, made on an SP404mk2 and by hand on a real
+MPC (firmware header `1.3.0.12`, product `AC50`). The MPC project loads; our
+converted one did not. Extracting both with `convert/xpj_to_json.py` and
+diffing them showed the pattern decoding was already right — all 24 event
+times and velocities matched exactly — and everything around it was not:
+
+| Ours (synthetic template) | Real MPC project |
+|---|---|
+| header `3.7.0.56`, `{"formatVersion": 2, "data": …}` | header `1.3.0.12`, `{"data": …}` only |
+| 19 keys in `data` | 66 keys (mixer, Q-Links, locators, scenes, assignable controls, …) |
+| `engineMode: 5` (int) | `"Sequence"` (string) |
+| `mixer: {}` and 1 track | full mixer, plus Submix 1 / Out 1/2 / Out 3/4 tracks |
+| `seqEventList: {}`, no `smpteStart`, `perClipParameterValues: {}` | full objects |
+| a clip only for tracks with events | a clip for every track in every sequence, sorted by track name; `clipPlayerData.trackClipTransportMap` lists every track |
+| `padNoteMap` 0 for unused slots, used slots shifted by +1 | default `36 + i` |
+| `muteTargets` / `simultPlayTargets` = `[]` | `{"value0": 0, … "value3": 0}` |
+| `synthSection` with invented key names (`lfoData.rate`, ADSR-only envelopes…) | different keys and 20+ more per envelope |
+| instrument `velocityScale`; `stretchPercentage: 100.0`; `sampleEnd` = pad end; `rootNote` = note | no `velocityScale`; `100` (int); `sampleStart/End` 0 and region in `sliceInfo`; `rootNote` 0 |
+| pad volume 1.0 for SP404 volume 127 | unity is `0.7079457640647888` |
+| sample `key: ""` | MPC never writes an empty key |
+
+Fixes: real template (§7), `assign()` that never adds/retypes a field, the
+mapping rows in §5.4, `padNoteMap` untouched (§5.2), a clip per track,
+`indent=0` JSON layout (MPC's exact text layout — the real file round-trips
+byte-for-byte apart from the last digit of some floats).
+`tests/test_xpj_reference.py` now converts PRJ7SP404 and asserts **zero**
+differences from the real project in keys, key order, strict JSON types and
+list lengths, identical event times/pads/velocities, and that a converted pad
+differs from a real loaded pad only in its own sample fields (plus the snare's
+gate: PRJ7SP404's `PADCONF.BIN` has gate **on** for pad A02 although its notes
+say gate is off, so it correctly converts to Note Off).
+
+Multi-track projects were also checked for structure only (9 banks, 101
+pads, 16 sequences → 0 differences from the real drum-track/sequence/clip
+shapes), but the reference has a single drum track, so these are **still
+unverified on hardware**:
+
+- **Track order**: drum tracks are written before Submix 1 / Out 1/2 /
+  Out 3/4. Only inferred from the single-track reference.
+- **`clipPlayerData.trackClipTransportMap`**: one `{key: <sequence>, value: 0}`
+  entry per sequence per track. The reference has one sequence.
+- **Duplicated drum tracks**: `chainID`, `colour` etc. are copied from the
+  single reference track.
+- **Sample rate and WAV chunks**: the real project's WAVs are 44.1 kHz with
+  MPC's own `atem` (JSON metadata) and `smpl` chunks — MPC resampled and
+  re-wrote them on import. Ours stay 48 kHz plain PCM, with `sliceInfo.End`
+  counting 48 kHz frames. If MPC rejects or mis-plays them, resample to
+  44.1 kHz (frames scale by 44100/48000, truncated: 8033 → 7380 matches MPC).
+- **Trimmed / looping pads**: the reference has neither, so where MPC keeps
+  loop points and trims (`sliceInfo` vs the layer's own fields) is a guess.
+- **Sample `key`**: `"C Major"` (the project default) since MPC always writes
+  one and never an empty string.
 
 ## References
 
