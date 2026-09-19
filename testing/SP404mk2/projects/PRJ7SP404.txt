@@ -1,0 +1,9 @@
+Project has 2 bars sequence
+Only one pattern on pad 1
+90 bpm
+gate off on samples
+The samples AND sequence information are identical to the data in testing/MPC/prj7mpc.xpj
+Kick on pad 1,9 (2 bars)
+Snare on pad 4, 13 (2 bars)
+Hats on 1, 3, 5, 7, 9, 11, 13, 15 (2 bars)
+1/8 notes quantized 100%

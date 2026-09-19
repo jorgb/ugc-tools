@@ -1,0 +1,9 @@
+Project has 2 bars sequence
+Only one pattern on pad 1
+90 bpm
+gate off on samples
+The samples AND sequence information are identical to the data in testing/SP404mk2/projects/PRJ7SP404
+Kick on sequence 001.01 003.01 002.01 002.03 (2 bars)
+Snare on sequence 001.02 001.04 002.02 002.04 (2 bars)
+Hats on every 1/8 step 001.01 001.01.480 001.02.000 001.02.480 etc! (2 bars)
+1/8 notes quantized 100%
