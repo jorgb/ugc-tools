@@ -2,7 +2,7 @@
 
 Status: design only, no code yet. This document lays out how to convert an
 exported SP404mk2 project (PADCONF.BIN + SMPL/*.SMP + PTN/*.BIN) into an
-Akai MPC project (`.xpj` + `[Project Data]` folder) that loads on **MPC Live
+Akai MPC project (`.xpj` + `_[ProjectData]` folder) that loads on **MPC Live
 III** and **MPC Sample**, including the pad samples and the sequencer data.
 
 **Verification pass (this revision):** every XPJ claim below was re-checked
@@ -18,8 +18,8 @@ Given a folder exported from an SP404mk2 (see
 `testing/SP404mk2/pad-sequencer/2026-04-08/`), produce:
 
 - One `.xpj` project file MPC Standalone can open directly.
-- A sibling `<ProjectName> [Project Data]/Samples/` folder with one `.wav`
-  per SP404 pad sample, decoded from the proprietary `.SMP` format.
+- A sibling `<ProjectName>_[ProjectData]/` folder with one `.wav` per SP404
+  pad sample directly inside it, decoded from the proprietary `.SMP` format.
 - Every SP404 pattern converted into an MPC sequence with the same note
   timing, pad, and velocity data.
 
@@ -258,27 +258,40 @@ is **two things that must travel together**:
 
 ```
 <ProjectName>.xpj
-<ProjectName> [Project Data]/
-  Samples/
-    <pad-sample-1>.wav
-    ...
+<ProjectName>_[ProjectData]/
+  <pad-sample-1>.wav
+  ...
 ```
 
-The `.xpj` JSON's sample-pool `path` field (see §4.3) is a filename (plus
-extension), resolved relative to the project's `[Project Data]/Samples/`
-folder. This matches the user's requested output shape: an `.xpj` file
-with a `[Project Data]` folder of WAVs next to it. In 3.x, per
-`00-format-reference.md`, "the companion folder contains only `.wav`
-sample files" — all other metadata (programs, sequences) lives inside the
-single gzipped `.xpj`, unlike the older 2.x format which spread programs
-and sequences across separate `.xpm`/`.sxq` files.
+**Corrected 2026-09-18** (user-confirmed real MPC convention): the folder
+is `<ProjectName>_[ProjectData]` — underscore, no space, "ProjectData" as
+one word — not `<ProjectName> [Project Data]` as an earlier revision of
+this document guessed despite this section's own research quoting the
+correct form from MPC-Tutor and `00-format-reference.md`
+("`ProjectName_[ProjectData]/`") — that quote just didn't make it into the
+implementation the first time. Also: **the project name used to build
+these paths must not contain spaces** — `writer.sanitize_project_name()`
+collapses whitespace in the project name to underscores before it's used
+in either the `.xpj` filename or the `_[ProjectData]` folder name, so
+`<name>.xpj` and `<name>_[ProjectData]` always share the same space-free
+base name. This does not apply to individual sample filenames, which may
+contain spaces — confirmed fine, real MPC sample pools do this too (e.g.
+`"HipHop-Stab-Stun Piano 2.wav"` in `kurtjcu`'s own example data, §4.0).
 
-**Unverified assumption, needs a hardware/software check (see §11):** the
-exact folder-name spelling (`[Project Data]` vs `_[ProjectData]`) and
-whether `Samples/` is required as a literal subfolder name or just "some
-folder referenced by the sample pool". Treat the produced layout as the
-default; make the subfolder name a single constant so it's a one-line fix
-if real hardware disagrees.
+**Corrected again 2026-09-18 (same day, later): no `Samples/` subfolder.**
+The WAVs go directly inside `_[ProjectData]/`, not nested one level deeper
+in a `Samples/` subfolder — MPC Sample could not find the samples with
+that extra nesting. `writer.py` no longer has a `SAMPLES_SUBDIR` constant;
+`planned_paths()`/`write_project()` both place every WAV straight into the
+`_[ProjectData]` directory returned as `project_data_dir`.
+
+The `.xpj` JSON's sample-pool `path` field (see §4.3) is a filename (plus
+extension), resolved relative to the project's `_[ProjectData]/` folder
+directly. In 3.x, per `00-format-reference.md`, "the companion folder
+contains only `.wav` sample files" — all other metadata (programs,
+sequences) lives inside the single gzipped `.xpj`, unlike the older 2.x
+format which spread programs and sequences across separate `.xpm`/`.sxq`
+files.
 
 ### 4.3 Relevant JSON schema
 
@@ -645,7 +658,7 @@ that list).
 
 | SP404 | MPC field |
 |---|---|
-| `Project.project_name` | used to name the `.xpj` and the `[Project Data]` folder |
+| `Project.project_name` | used to name the `.xpj` and the `_[ProjectData]` folder, with whitespace collapsed to underscores (`writer.sanitize_project_name()`, §4.2) |
 | `bank_bpms[letter]` | per-track `program.drum.instruments[*].tempo` default, and the *first* bank's BPM seeds `data.masterTempo` |
 
 ### 5.5 Sample handling: no physical trimming, no chop reproduction
@@ -776,7 +789,7 @@ convert/
     mapping.py             # the tables in §5.4 as data + pure functions
     wav.py                 # SMP -> WAV (§6)
     writer.py              # template mutation, gzip/header framing,
-                            # on-disk [Project Data] layout (§4.2, §9)
+                            # on-disk _[ProjectData] layout (§4.2, §9)
     convert.py             # top-level orchestration + logging: read sp404
                             # export, build model.py objects, call writer.py
 ```
@@ -800,12 +813,15 @@ python convert/sp404_to_xpj.py <sp404-export-folder> <output-folder> [--project-
 ```
 <output-folder>/
   <ProjectName>.xpj
-  <ProjectName> [Project Data]/
-    Samples/
-      A01 - <pad name>.wav
-      A02 - <pad name>.wav
-      ...
+  <ProjectName>_[ProjectData]/
+    A01 - <pad name>.wav
+    A02 - <pad name>.wav
+    ...
 ```
+
+`<ProjectName>` here is already space-free (`writer.sanitize_project_name()`,
+§4.2); individual sample filenames may still contain spaces. The WAVs sit
+directly inside `_[ProjectData]/` — no `Samples/` subfolder (§4.2).
 
 One WAV per unique underlying sample buffer (§5.5), named from the pad's
 `name` field with the originating pad prefixed for readability and
@@ -831,14 +847,17 @@ written into both the sample-pool `path` and the layer's `sampleFile`
      assignments and pad volumes.
   3. Play each sequence, confirm note timing/velocity matches the
      original SP404 pattern by ear against a recording from the SP404.
-  4. Confirm `[Project Data]/Samples` folder name and relative path
-     resolution actually works when the project folder is moved/copied.
+  4. Confirm `_[ProjectData]` folder name and relative path resolution
+     actually works when the project folder is moved/copied.
 
 ## 11. Open questions / risks
 
-- **`[Project Data]` folder naming** (§4.2) — only sourced from
-  documentation, not a hardware-saved example. Verify against a real save
-  before shipping.
+- **`_[ProjectData]` folder contents beyond WAVs** (§4.2) — the folder
+  name and flat (no `Samples/` subfolder) layout are now user-confirmed
+  against real MPC behavior; whether anything *else* (e.g. per-program
+  `.xpm`-equivalent files) is expected inside it for 3.x specifically is
+  still only sourced from documentation, not a hardware-saved example.
+  Verify against a real save before shipping.
 - **`pad_link` semantics** (§5.4) — `sp404.padconf.Pad.pad_link` is
   decoded as a bank value, but its runtime behavior (choke vs. simultaneous
   trigger vs. something else) isn't confirmed in `testing/SP404mk2/*.txt`.
@@ -985,7 +1004,7 @@ What has been verified, end to end, against this repo's own
   duration/settings, sequences with note/control-change counts) and
   writes nothing to disk.
 - A real (non-dry) run produces `PROJECT_08.xpj` +
-  `PROJECT_08 [Project Data]/Samples/*.wav` in the documented layout (§9).
+  `PROJECT_08_[ProjectData]/*.wav` in the documented layout (§9).
 - The `.xpj` gunzips and parses as the documented shape (§4.3): correct
   header lines, `tracks: ["A", "B"]`, `padNoteMap` values, per-instrument
   `sampleFile`/`sampleName` split, note events with the correct nested
@@ -1031,11 +1050,24 @@ sequences, all internally consistent). This is still not the same as
 loading it on real MPC hardware/software, which remains the open item
 above.
 
+**Update (2026-09-18, later still): two on-disk layout bugs, found by the
+user rather than by testing against a fixture** (a reminder that this
+project's own fixtures can't catch everything either):
+
+1. The `_[ProjectData]` folder naming (§4.2) — was `<name> [Project Data]`
+   with a space, should be `<name>_[ProjectData]` with an underscore.
+2. **The WAVs were nested one level too deep**, in a `Samples/` subfolder
+   inside `_[ProjectData]/` — MPC Sample could not find them there. Fixed:
+   WAVs now go directly inside `_[ProjectData]/` (§4.2, §9); `writer.py`
+   no longer has a `SAMPLES_SUBDIR` concept at all.
+
+Both are now covered by `tests/test_xpj_writer.py`.
+
 ## References
 
 - [kurtjcu/MPC-project-file-definitions](https://github.com/kurtjcu/MPC-project-file-definitions) — primary XPJ format reference used throughout §4; treat its example JSON files as higher-confidence than its prose (§4.0).
 - [tarikcampos/MPC-Sample-Toolkit](https://github.com/tarikcampos/MPC-Sample-Toolkit) — existing open-source XPJ generator (WAV → MPC Sample); confirmed the template-based generation approach in §7 and independently verified several field names/shapes in §4.0.
 - [Duffman007/MPC2Live](https://github.com/Duffman007/MPC2Live) — existing open-source XPJ reader (XPJ → Ableton Live).
-- [MPC-Tutor: MPC X, MPC One & MPC Live Projects — The Complete Lowdown](https://www.mpc-tutor.com/mpc-x-mpc-live-projects-lowdown/) — on-disk project/`[Project Data]` folder layout, §4.2.
+- [MPC-Tutor: MPC X, MPC One & MPC Live Projects — The Complete Lowdown](https://www.mpc-tutor.com/mpc-x-mpc-live-projects-lowdown/) — on-disk project/`_[ProjectData]` folder layout, §4.2.
 - `testing/SP404mk2/PTN.txt`, `PADCONF.txt`, `SMPL.txt`, `mk2_notes.txt` — this repo's own SP404mk2 reverse-engineering notes, primary source for §3.
 - Credited in this repo's `README.md`: [NearTao](https://neartao.com/) / [gsterlin/sp404mk2-tools](https://github.com/gsterlin/sp404mk2-tools) for the original SP404mk2 PADCONF/PTN reverse engineering this project builds on.

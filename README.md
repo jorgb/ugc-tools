@@ -154,7 +154,7 @@ limitations, and what's still unverified against real hardware):
 # --dry logs everything that would be converted and writes nothing
 python convert/sp404_to_xpj.py testing/SP404mk2/pad-sequencer/2026-04-08 /path/to/output --dry
 
-# drop --dry to actually write <ProjectName>.xpj + [Project Data]/Samples/*.wav
+# drop --dry to actually write <ProjectName>.xpj + <ProjectName>_[ProjectData]/*.wav
 python convert/sp404_to_xpj.py testing/SP404mk2/pad-sequencer/2026-04-08 /path/to/output
 ```
 

@@ -58,11 +58,13 @@ class TestXPJConvert(unittest.TestCase):
     def test_planned_paths_match_written_paths(self):
         """Verify dry-run path planning doesn't touch disk but matches what write_project would use."""
         model = build_model(FIXTURE_DIR)
-        xpj_path, samples_dir, wav_paths = writer.planned_paths(model, os.path.join("does", "not", "exist"))
+        xpj_path, project_data_dir, wav_paths = writer.planned_paths(model, os.path.join("does", "not", "exist"))
 
         self.assertTrue(xpj_path.endswith("PROJECT_08.xpj"))
-        self.assertIn("PROJECT_08 [Project Data]", samples_dir)
+        self.assertEqual(os.path.basename(project_data_dir), "PROJECT_08_[ProjectData]")
         self.assertEqual(len(wav_paths), 2)
+        # WAVs live directly inside _[ProjectData], not a Samples/ subfolder
+        self.assertTrue(all(os.path.dirname(p) == project_data_dir for p in wav_paths))
         self.assertFalse(os.path.exists(os.path.join("does", "not", "exist")))
 
 

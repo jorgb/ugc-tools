@@ -183,12 +183,12 @@ def convert_project(source_dir, output_dir, project_name=None, dry_run=False):
 
     Always builds and logs the full model. Only writes files when dry_run
     is False. Returns (model, paths), where paths is None in dry-run mode
-    and otherwise (xpj_path, samples_dir, wav_paths).
+    and otherwise (xpj_path, project_data_dir, wav_paths).
     """
     model = build_model(source_dir, project_name)
     _log_summary(model)
 
-    xpj_path, samples_dir, wav_paths = writer.planned_paths(model, output_dir)
+    xpj_path, project_data_dir, wav_paths = writer.planned_paths(model, output_dir)
 
     if dry_run:
         log.info("[DRY RUN] Would write:")
@@ -200,5 +200,5 @@ def convert_project(source_dir, output_dir, project_name=None, dry_run=False):
 
     writer.write_project(model, output_dir)
     log.info("Wrote %s", xpj_path)
-    log.info("Wrote %d sample(s) to %s", len(wav_paths), samples_dir)
-    return model, (xpj_path, samples_dir, wav_paths)
+    log.info("Wrote %d sample(s) to %s", len(wav_paths), project_data_dir)
+    return model, (xpj_path, project_data_dir, wav_paths)

@@ -8,16 +8,21 @@ import copy
 import gzip
 import json
 import os
+import re
 
 from . import mapping
 from . import template
 from . import wav
 
-SAMPLES_SUBDIR = "Samples"
+
+def sanitize_project_name(project_name):
+    """MPC project names must not contain spaces - collapse whitespace to
+    underscores so `<name>.xpj` and `<name>_[ProjectData]` stay valid."""
+    return re.sub(r"\s+", "_", project_name.strip())
 
 
-def _project_data_dir(output_dir, project_name):
-    return os.path.join(output_dir, f"{project_name} [Project Data]")
+def _project_data_dir(output_dir, safe_name):
+    return os.path.join(output_dir, f"{safe_name}_[ProjectData]")
 
 
 def build_track(bank_track):
@@ -117,32 +122,36 @@ def serialize(project_data):
 
 def planned_paths(model, output_dir):
     """Computes every path write_project() would write, without touching disk."""
-    xpj_path = os.path.join(output_dir, f"{model.project_name}.xpj")
-    samples_dir = os.path.join(_project_data_dir(output_dir, model.project_name), SAMPLES_SUBDIR)
+    safe_name = sanitize_project_name(model.project_name)
+    xpj_path = os.path.join(output_dir, f"{safe_name}.xpj")
+    # samples live directly in _[ProjectData]/, not a Samples/ subfolder -
+    # MPC Sample couldn't find them when they were nested one level deeper
+    project_data_dir = _project_data_dir(output_dir, safe_name)
     wav_paths = [
-        os.path.join(samples_dir, pad_slot.wav_filename)
+        os.path.join(project_data_dir, pad_slot.wav_filename)
         for letter in model.used_banks
         for pad_slot in model.banks[letter].pads.values()
     ]
-    return xpj_path, samples_dir, wav_paths
+    return xpj_path, project_data_dir, wav_paths
 
 
 def write_project(model, output_dir):
-    """Writes the .xpj file and [Project Data]/Samples/ folder for model.
+    """Writes <name>.xpj and <name>_[ProjectData]/ (with the WAVs directly
+    inside it) for model.
 
-    Returns (xpj_path, samples_dir, wav_paths).
+    Returns (xpj_path, project_data_dir, wav_paths).
     """
     project_data = build_project_data(model)
-    xpj_path, samples_dir, wav_paths = planned_paths(model, output_dir)
+    xpj_path, project_data_dir, wav_paths = planned_paths(model, output_dir)
 
     os.makedirs(output_dir, exist_ok=True)
     with open(xpj_path, 'wb') as f:
         f.write(serialize(project_data))
 
-    os.makedirs(samples_dir, exist_ok=True)
+    os.makedirs(project_data_dir, exist_ok=True)
     for letter in model.used_banks:
         for pad_slot in model.banks[letter].pads.values():
-            wav_path = os.path.join(samples_dir, pad_slot.wav_filename)
+            wav_path = os.path.join(project_data_dir, pad_slot.wav_filename)
             wav.write_wav(pad_slot.sample_info, pad_slot.smp_path, wav_path)
 
-    return xpj_path, samples_dir, wav_paths
+    return xpj_path, project_data_dir, wav_paths

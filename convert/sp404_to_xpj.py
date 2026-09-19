@@ -18,7 +18,7 @@ from xpj.convert import convert_project
 def main():
     parser = argparse.ArgumentParser(
         description="Convert an SP404mk2 project export (PADCONF.BIN, SMPL/, PTN/) "
-                    "to an MPC XPJ project (.xpj + [Project Data]/Samples/).")
+                    "to an MPC XPJ project (<name>.xpj + <name>_[ProjectData]/).")
     parser.add_argument("source", help="folder containing the SP404mk2 export")
     parser.add_argument("destination", help="folder to write the MPC project into")
     parser.add_argument("--project-name",
