@@ -1,5 +1,6 @@
 import unittest
 from convert.xpj import mapping
+from sp404.padconf import TrigMode
 
 
 class TestXPJMapping(unittest.TestCase):
@@ -37,6 +38,43 @@ class TestXPJMapping(unittest.TestCase):
         """Verify the sample tempo stays 0.0 (MPC's "unknown") for unsynced pads."""
         self.assertEqual(mapping.sample_tempo(_Pad(bpm=90.0, bpm_sync=False)), 0.0)
         self.assertEqual(mapping.sample_tempo(_Pad(bpm=90.0, bpm_sync=True)), 90.0)
+
+    def test_gate_maps_to_note_on(self):
+        """Verify SP404 GATE on is MPC's Note On; gate off and the One Shot flag are One Shot."""
+        gated = _Pad(gate=True, trig_mode=[TrigMode.NORMAL])
+        self.assertEqual(mapping.trigger_mode(gated), mapping.TriggerMode.NOTE_ON)
+        self.assertEqual(mapping.TriggerMode.NOTE_ON, 2)
+        self.assertEqual(mapping.trigger_mode(_Pad(gate=False, trig_mode=[TrigMode.NORMAL])),
+                         mapping.TriggerMode.ONE_SHOT)
+        self.assertEqual(mapping.trigger_mode(_Pad(gate=True, trig_mode=[TrigMode.ONE_SHOT])),
+                         mapping.TriggerMode.ONE_SHOT)
+
+    def test_tuning_reads_pitch_from_the_speed_ratio(self):
+        """Verify the SP404's varispeed pitch (2^(n/12) in the Speed field) becomes MPC tune."""
+        for semitones, speed_perc in [(-5, 74.91), (-3, 84.08), (-12, 50.0), (7, 149.83), (0, 100.0)]:
+            pad = _Pad(pitch_coarse=0, pitch_fine=0, speed_perc=speed_perc, bpm_sync=False)
+            self.assertEqual(mapping.tuning(pad), (semitones, 0), f"{semitones} semitones")
+
+    def test_tuning_keeps_the_cents_of_an_in_between_speed(self):
+        """Verify a speed that is not a whole semitone splits into coarse and fine tune."""
+        pad = _Pad(pitch_coarse=0, pitch_fine=0, speed_perc=92.38, bpm_sync=False)
+        self.assertEqual(mapping.tuning(pad), (-1, -37))
+
+    def test_tuning_adds_coarse_and_fine_fields(self):
+        pad = _Pad(pitch_coarse=2, pitch_fine=30, speed_perc=100.0, bpm_sync=False)
+        self.assertEqual(mapping.tuning(pad), (2, 30))
+        pad = _Pad(pitch_coarse=-5, pitch_fine=0, speed_perc=74.91, bpm_sync=False)
+        self.assertEqual(mapping.tuning(pad), (-10, 0))
+
+    def test_tuning_ignores_speed_when_bpm_synced(self):
+        """Verify a BPM-synced pad's Speed is a time stretch, not pitch."""
+        pad = _Pad(pitch_coarse=0, pitch_fine=0, speed_perc=74.91, bpm_sync=True)
+        self.assertEqual(mapping.tuning(pad), (0, 0))
+        self.assertEqual(mapping.stretch_percentage(pad), 74.91)
+
+    def test_stretch_percentage_is_neutral_when_speed_became_pitch(self):
+        pad = _Pad(speed_perc=74.91, bpm_sync=False)
+        self.assertEqual(mapping.stretch_percentage(pad), 100.0)
 
 
 class _Pad:

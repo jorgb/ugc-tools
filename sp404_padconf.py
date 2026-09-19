@@ -47,7 +47,7 @@ def main():
                     'chromatic': pad.chromatic.name,
                     'pitch_coarse': pad.pitch_coarse,
                     'pitch_fine': pad.pitch_fine,
-                    'time_stretch_perc': pad.time_stretch_perc,
+                    'speed_perc': pad.speed_perc,
                 }
                 
                 if pad.markers:

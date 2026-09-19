@@ -69,7 +69,7 @@ Already-working parsers live in `sp404/` and are reused as-is:
   and a `Pad` per pad-slot (172-byte record) with `sample_start`,
   `sample_end`, `vol`, `gate`, `mute_group`, `pad_link`, `bpm_sync`, `bpm`,
   `loop_start`, `play_mode`, `trig_mode` (list), `bus_fx`, `chromatic`,
-  `time_stretch_perc`, `name`, `markers`.
+  `speed_perc`, `name`, `markers`.
 - `sp404.smp.Sample` — reads a `.SMP` file header (`RFWV` magic,
   `samplerate`, `mode` mono/stereo, `size` in samples).
 - `sp404.ptn.Pattern` / `PatternEvent` / `PadID` — reads a `.PTN` file into
@@ -149,14 +149,21 @@ new parser.
 ### 3.4 PADCONF pad fields not yet mapped by an enum
 
 A few numeric fields in `sp404.padconf.Pad` are stored as raw
-percent/semitone values rather than enums (`time_stretch_perc`, `bpm`,
+percent/semitone values rather than enums (`speed_perc`, `bpm`,
 `loop_start`). These pass straight through to the mapping tables in §5.4.
 
-Note: `time_stretch_perc` was previously named `pitch_perc` in this parser;
-it was renamed after cross-checking against an independent RE project
-(see `testing/SP404mk2/mk2_notes.txt`'s 2026-09-18 section) which showed it
-matches the SP404's "Time Stretch %" parameter (word 16 of the pad record),
-not raw pitch. The pad's *actual* pitch controls — `pitch_coarse`
+Note: `speed_perc` (word 16 of the pad record) went through two names.
+It started as `pitch_perc`, was renamed `time_stretch_perc` after an
+independent RE project documented word 16 as "Time Stretch %", and is now
+`speed_perc` after checking a real project with pitched pads
+(`testing/SP404mk2/playy`, pad A01 at pitch -5): with BPM sync off the
+SP404 stores a pad's pitch **there**, as the varispeed ratio
+`2^(semitones/12)` (-5 semitones = 7491 = 74.91%), while `pitch_coarse` and
+`pitch_fine` stay `0` on all 101 pads. Every value in that project is a
+whole-semitone ratio except two that carry extra cents (92.38% = -1.37
+semitones, 88.24% = -2.17). With BPM sync on it is a genuine time stretch
+(no synced pad with a non-default value has been seen yet). The pad's
+*other* pitch controls — `pitch_coarse`
 (semitones, word 13) and `pitch_fine` (cents, word 14) — are now also read
 by `sp404.padconf.Pad`, using a new `spr.read_slong_b` (signed, big-endian)
 helper, since unlike every other field on `Pad` these can be negative.
@@ -630,7 +637,7 @@ footer (§3.2).
 | SP404 (`sp404.padconf.Pad`) | MPC field | Notes |
 |---|---|---|
 | `vol` (0-127) | `instruments[i].mixable.volume` | `0.7079457640647888 * vol / 127` — `mixable.volume` is a plain float (§4.0), unlike layer volume. MPC's 0 dB is `0.7079…`, not `1.0` (which is +3 dB); every untouched pad, track and mixer volume in the real project is `0.7079…` |
-| `gate` (bool) | `instruments[i].triggerMode` | `True` → `1` (Note Off / gated); `False` → `0` (One Shot), unless `trig_mode` has `LOOP` (below) |
+| `gate` (bool) | `instruments[i].triggerMode` | `True` → `2` (Note On: plays while the pad is held); `False` → `0` (One Shot). Note Off (`1`) is never used. The `2` = Note On numbering comes from MPCTK and the enum order One Shot / Note Off / Note On; no project in the repo has a pad using it, so confirm it on hardware |
 | `TrigMode.ONE_SHOT` in `trig_mode` | `instruments[i].triggerMode` | forces `0` regardless of `gate` |
 | `TrigMode.LOOP` in `trig_mode` | `layersv[0].loop` | `True`; see loop row below |
 | `TrigMode.FIXED_VELOCITY` in `trig_mode` | *(no MPC field - not applied)* | the instrument has no `velocityScale` key at all in a real project (section 15), so the earlier approximation was inventing a field. Now only logged as a warning; flattening the pad's note velocities to 127 in the sequence would be the faithful alternative |
@@ -638,8 +645,9 @@ footer (§3.2).
 | `pad_link` (`Bank` enum) | `instruments[i].simultPlayTargets` | best-effort; SP404 pad-link semantics aren't fully reverse-engineered (§11) — mapped as "also trigger the linked pad's slot" |
 | `bpm_sync` (bool) | `instruments[i].bpmLock` / `warpEnable` | only touched when sync is on (both `True`); otherwise MPC's own loaded-pad defaults (`bpmLock: true, warpEnable: false`) are kept |
 | `bpm` (float) | `instruments[i].tempo`, sample pool `metadata.tempo` | only when `bpm_sync`; the sample-pool tempo is `0.0` ("unknown") otherwise, like MPC writes |
-| `time_stretch_perc` (%, 100=normal) | `instruments[i].stretchPercentage` | direct (written as an **integer**, like the real file: `100`, not `100.0`) — both are already percentages (100=no change), no unit conversion needed. Formerly mapped to `coarseTune`/`fineTune` under the (incorrect) name `pitch_perc`; see §3.4/§11 |
-| `pitch_coarse` / `pitch_fine` (semitones/cents) | `instruments[i].coarseTune` / `fineTune` | direct, but clamp to MPC's real limits: `[-24, 24]` semitones, `[-90, 90]` cents — confirmed hardware limits from MPCTK's `COARSE_TUNE_MIN/MAX`, `FINE_TUNE_MIN/MAX`. SP404's own range is narrower (`-12..12` semitones, `-100..100` cents per the external RE project), so it always fits without clamping in practice; not yet verified against a real non-zero value on hardware — see §11 |
+| `speed_perc` (%, 100=normal), `bpm_sync` off | `instruments[i].coarseTune` / `fineTune` | this is the pad's pitch (§3.4): `cents = 1200 * log2(speed_perc / 100)`, split into whole semitones (`coarseTune`) and the remaining cents (`fineTune`, -50..50). Pad A01 at -5 → `coarseTune -5`. `stretchPercentage` stays at the template's `100` |
+| `speed_perc` (%, 100=normal), `bpm_sync` on | `instruments[i].stretchPercentage` | direct (written as an **integer**, like the real file: `100`, not `100.0`). Unverified: no synced pad with a non-default speed exists in the fixtures |
+| `pitch_coarse` / `pitch_fine` (semitones/cents) | `instruments[i].coarseTune` / `fineTune` | added to the pitch above (both are `0` in every real project seen), clamp to MPC's real limits: `[-24, 24]` semitones, `[-90, 90]` cents — confirmed hardware limits from MPCTK's `COARSE_TUNE_MIN/MAX`, `FINE_TUNE_MIN/MAX`. SP404's own range is narrower (`-12..12` semitones, `-100..100` cents per the external RE project), so it always fits without clamping in practice; not yet verified against a real non-zero value on hardware — see §11 |
 | `chromatic` (`MONO`/`LEGATO`/`POLY`) | *(program-level `drum.monophonic`/`drum.poliphony`, not per-pad — see §4.3)* | approximate at the whole-track level using the pad's own value if pads disagree within a bank, log a warning (§11) |
 | `play_mode` (`FORWARD`/`REVERSE`/`FWD_PINGPONG`/`REV_PINGPONG`) | `layersv[0].direction` | `FORWARD`→`0`, `REVERSE`/`REV_PINGPONG`→`1`; ping-pong itself has no documented MPC layer field, so it degrades to plain forward/reverse with a logged warning |
 | `bus_fx` | *(dropped)* | explicitly out of scope |

@@ -122,7 +122,7 @@ banks:
         chromatic: MONO
         pitch_coarse: 0
         pitch_fine: 0
-        time_stretch_perc: 100.0
+        speed_perc: 100.0
       pad_2:
         name: 001 short hendry - 5PLH
         sample_start: 0
@@ -141,7 +141,7 @@ banks:
         chromatic: MONO
         pitch_coarse: 0
         pitch_fine: 0
-        time_stretch_perc: 100.0
+        speed_perc: 100.0
       pad_3:
         name: 001 short hendry - 5PLH
         ...

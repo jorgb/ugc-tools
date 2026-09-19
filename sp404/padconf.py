@@ -91,12 +91,17 @@ class Pad:
         self.bus_fx = BusFX(spr.read_long_b(buf[80:84]) & 0x0F)
         # TODO: Roll not yet implemented
         self.chromatic = Chromatic.parse(spr.read_long_b(buf[40:44]))
-        # semitones (-12..12) and cents (-100..100); not verified against the
-        # SP404 app, based on an independent RE project's live protocol spec
+        # semitones (-12..12) and cents (-100..100), from an independent RE
+        # project's live protocol spec. Every pad of a real project with
+        # pitched pads (testing/SP404mk2/playy) still reads 0 here - see
+        # speed_perc for where the pad's pitch actually lands.
         self.pitch_coarse = spr.read_slong_b(buf[52:56])
         self.pitch_fine = spr.read_slong_b(buf[56:60])
-        # this is Time Stretch % (5000-15000 -> 50-150%), not pitch
-        self.time_stretch_perc = spr.read_long_b(buf[64:68]) / 100
+        # Speed % (5000-15000 -> 50-150%). With BPM sync off this IS the pad's
+        # pitch: the SP404 plays it as varispeed and stores the ratio
+        # 2^(semitones/12) here (pad A01 at pitch -5 reads 7491 = 74.91%,
+        # and coarse/fine stay 0). With BPM sync on it is a real time stretch.
+        self.speed_perc = spr.read_long_b(buf[64:68]) / 100
 
 
 class Project:

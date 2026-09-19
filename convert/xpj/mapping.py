@@ -4,6 +4,7 @@ See convert/xpj/DESIGN.md section 5.4 for the field mapping tables this
 implements, and section 11 for which of these are best-effort/unverified.
 """
 
+import math
 from enum import IntEnum
 
 from sp404.padconf import PlayMode, TrigMode
@@ -78,13 +79,42 @@ def note_velocity(byte_velocity):
 
 
 def trigger_mode(pad):
-    """0=One Shot, 1=Note Off (gated), 2=Note On is never used - SP404 has
-    no equivalent to MPC's polyphonic re-trigger mode."""
+    """SP404 GATE on (sample plays while the pad is held) is MPC's Note On;
+    GATE off, or the pad's One Shot flag, plays the sample through: One Shot.
+    Note Off is never used."""
     if TrigMode.ONE_SHOT in pad.trig_mode:
         return int(TriggerMode.ONE_SHOT)
     if pad.gate:
-        return int(TriggerMode.NOTE_OFF)
+        return int(TriggerMode.NOTE_ON)
     return int(TriggerMode.ONE_SHOT)
+
+
+def pitch_cents(pad):
+    """The pad's total pitch offset in cents.
+
+    With BPM sync off the SP404 stores pad pitch as a varispeed ratio in its
+    Speed field (2^(semitones/12), so -5 semitones is 74.91%), and its Pitch
+    Coarse/Fine fields stay 0. With BPM sync on the Speed field is a real time
+    stretch and does not change pitch. Coarse/Fine are added in either case."""
+    cents = pad.pitch_coarse * 100 + pad.pitch_fine
+    if not pad.bpm_sync and pad.speed_perc > 0:
+        cents += 1200 * math.log2(pad.speed_perc / 100)
+    return cents
+
+
+def tuning(pad):
+    """(coarseTune, fineTune) for the pad: whole semitones, then the
+    remaining cents (-50..50), each clamped to MPC's limits."""
+    cents = pitch_cents(pad)
+    coarse = round(cents / 100)
+    fine = round(cents - coarse * 100)
+    return clamp(coarse, COARSE_TUNE_RANGE), clamp(fine, FINE_TUNE_RANGE)
+
+
+def stretch_percentage(pad):
+    """MPC's time stretch. Only a BPM-synced pad has one; for the rest the
+    Speed field was already applied as pitch (see pitch_cents)."""
+    return pad.speed_perc if pad.bpm_sync else 100.0
 
 
 def is_looping(pad):

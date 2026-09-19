@@ -1,11 +1,17 @@
 import logging
 import os
+import shutil
+import struct
+import tempfile
 import unittest
 
-from convert.xpj import writer
+from convert.xpj import mapping, writer
 from convert.xpj.convert import build_model
 
 FIXTURE_DIR = os.path.join("testing", "SP404mk2", "pad-sequencer", "2026-04-08")
+PROJECT_DIR = os.path.join("testing", "SP404mk2", "projects", "PRJ7SP404")
+
+PAD_RECORDS_OFFSET = 0xA0
 
 
 class TestXPJConvert(unittest.TestCase):
@@ -91,6 +97,36 @@ class TestXPJConvert(unittest.TestCase):
         # WAVs live directly inside _[ProjectData], not a Samples/ subfolder
         self.assertTrue(all(os.path.dirname(p) == project_data_dir for p in wav_paths))
         self.assertFalse(os.path.exists(os.path.join("does", "not", "exist")))
+
+
+    def test_pad_pitch_volume_and_gate_reach_the_mpc_pad(self):
+        """Verify a pad set to pitch -5, volume 41 and GATE on lands as tune -5, that level and Note On."""
+        with tempfile.TemporaryDirectory() as tmp:
+            source = os.path.join(tmp, "PRJ")
+            shutil.copytree(PROJECT_DIR, source)
+            padconf_path = os.path.join(source, "PADCONF.BIN")
+            with open(padconf_path, "rb") as f:
+                buf = bytearray(f.read())
+            # pad A01: level (word 3), gate (word 4) and the Speed field (word 16),
+            # where the SP404 stores a -5 semitone pitch as 2^(-5/12) = 74.91%
+            struct.pack_into(">L", buf, PAD_RECORDS_OFFSET + 12, 41)
+            struct.pack_into(">L", buf, PAD_RECORDS_OFFSET + 16, 1)
+            struct.pack_into(">L", buf, PAD_RECORDS_OFFSET + 64, 7491)
+            with open(padconf_path, "wb") as f:
+                f.write(buf)
+
+            model = build_model(source)
+
+        instruments = writer.build_project_data(model)["data"]["tracks"][0]["program"]["drum"]["instruments"]
+        pad_a01, pad_a02 = instruments[0], instruments[1]
+        self.assertEqual(pad_a01["coarseTune"], -5)
+        self.assertEqual(pad_a01["fineTune"], 0)
+        self.assertEqual(pad_a01["triggerMode"], mapping.TriggerMode.NOTE_ON)
+        self.assertEqual(pad_a01["stretchPercentage"], 100)
+        self.assertAlmostEqual(pad_a01["mixable"]["volume"], mapping.MPC_UNITY_VOLUME * 41 / 127)
+        # an untouched pad keeps its own settings
+        self.assertEqual(pad_a02["coarseTune"], 0)
+        self.assertAlmostEqual(pad_a02["mixable"]["volume"], mapping.MPC_UNITY_VOLUME)
 
 
 if __name__ == '__main__':

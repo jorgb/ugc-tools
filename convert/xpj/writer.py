@@ -50,11 +50,12 @@ def build_track(model):
         instrument = template.sampled_instrument()
         drum["instruments"][slot_index] = instrument
 
-        assign(instrument, "coarseTune", mapping.clamp(pad.pitch_coarse, mapping.COARSE_TUNE_RANGE))
-        assign(instrument, "fineTune", mapping.clamp(pad.pitch_fine, mapping.FINE_TUNE_RANGE))
+        coarse_tune, fine_tune = mapping.tuning(pad)
+        assign(instrument, "coarseTune", coarse_tune)
+        assign(instrument, "fineTune", fine_tune)
         assign(instrument, "whichMuteGroup", mapping.mute_group_index(pad))
         assign(instrument, "triggerMode", mapping.trigger_mode(pad))
-        assign(instrument, "stretchPercentage", pad.time_stretch_perc)
+        assign(instrument, "stretchPercentage", mapping.stretch_percentage(pad))
         assign(instrument["mixable"], "volume", mapping.instrument_volume(pad))
         if pad.bpm_sync:
             assign(instrument, "tempo", pad.bpm)

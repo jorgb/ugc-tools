@@ -163,12 +163,15 @@ def _log_summary(model):
         else:
             bank, number = divmod(pad_slot.slot, banking.PADS_PER_BANK)
             where = f"MPC pad {banking.bank_letter(bank)}{number + 1:02d} (note {pad_slot.note})"
+        coarse, fine = mapping.tuning(pad)
         log.info("  pad %s '%s' -> %s: %.2fs (%d frames, %s, %d Hz), "
-                 "vol %d, trig=%s, play=%s -> %s",
+                 "vol %d, tune %+d/%+d, gate=%s -> %s, trig=%s, play=%s -> %s",
                  pad_slot.sp404_name, pad.name, where, duration,
                  pad_slot.sample_info.size, pad_slot.sample_info.mode.name,
-                 pad_slot.sample_info.samplerate, pad.vol, trig,
-                 pad.play_mode.name, pad_slot.wav_filename)
+                 pad_slot.sample_info.samplerate, pad.vol, coarse, fine,
+                 "on" if pad.gate else "off",
+                 mapping.TriggerMode(mapping.trigger_mode(pad)).name,
+                 trig, pad.play_mode.name, pad_slot.wav_filename)
 
         if mapping.is_fixed_velocity(pad):
             log.warning("  pad %s: FIXED_VELOCITY has no MPC pad field, not applied",

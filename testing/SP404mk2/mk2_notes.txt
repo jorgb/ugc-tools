@@ -1,3 +1,22 @@
+### 2026-09-19 — pad pitch lives in the Speed field (word 16), not Pitch Coarse/Fine
+
+Converting `testing/SP404mk2/playy/` gave MPC pad A01 a tune of 0 although the
+SP404 pad is set to pitch -5. Its raw record: word 3 (level) = 41, word 4
+(gate) = 1, words 13/14 (Pitch Coarse/Fine) = 0, **word 16 = 7491**. That is
+2^(-5/12) = 0.7491: with BPM sync off the SP404 plays pitch as varispeed and
+keeps the pitch as a speed ratio in word 16. Across all 101 pads words 13/14
+are always 0, and word 16 is 2^(n/12) for whole semitones (n = -12, -7, -5,
+-4, -3, -2, -1, +7) except 92.38% (-1.37 semitones) and 88.24% (-2.17), which
+carry extra cents. The earlier "Time Stretch %" label for word 16 (SparkyMK2's
+name, adopted 2026-09-18) was wrong for BPM-sync-off pads, so
+`Pad.time_stretch_perc` is now `Pad.speed_perc`. What a BPM-synced pad stores
+here (a real time stretch, presumably, with the pitch in words 13/14) is not
+yet seen in any fixture: all synced pads in `playy` read 100%.
+
+Converter: `mapping.tuning()` turns word 16 into MPC coarse + fine tune
+(1200*log2(speed/100) cents) for BPM-sync-off pads. The GATE flag now maps to
+MPC's Note On (`triggerMode` 2) instead of Note Off (1).
+
 ### 2026-09-18 (later) — real-world bug: pad name fields can have stale bytes after the NUL terminator
 
 Running the converter against an older, real project export
