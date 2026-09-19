@@ -39,6 +39,7 @@ Things I want to eventually accomplish (will most likely change over time)
 - convert
   - xpj (SP404mk2 -> MPC XPJ converter package; see [convert/xpj/DESIGN.md](convert/xpj/DESIGN.md))
   - sp404_to_xpj.py - converts an SP404mk2 project export to an MPC XPJ project
+  - xpj_to_json.py - extracts an MPC XPJ project back to readable JSON (for diffing against projects that load on real hardware)
 - testing 
   - M8 (research to M8 format files)
   - SP404mk2 (research to SP404mk2 format files)
@@ -156,6 +157,14 @@ python convert/sp404_to_xpj.py testing/SP404mk2/pad-sequencer/2026-04-08 /path/t
 
 # drop --dry to actually write <ProjectName>.xpj + <ProjectName>_[ProjectData]/*.wav
 python convert/sp404_to_xpj.py testing/SP404mk2/pad-sequencer/2026-04-08 /path/to/output
+```
+
+To extract an XPJ back to JSON (for example to compare converter output against a project that
+loads on real hardware), this writes `<name>.json` and `<name>.header.txt` next to each file, or
+into `--output-dir`:
+
+```bash
+python convert/xpj_to_json.py MyProject.xpj Other.xpj --output-dir /path/to/json
 ```
 
 ## Credits
