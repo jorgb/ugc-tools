@@ -1,0 +1,3 @@
+To test / convert:
+- Envelope decay is not yet working when releasing gated sample
+- BPM SYNC (tuning is not accurate)
