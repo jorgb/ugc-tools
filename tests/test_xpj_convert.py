@@ -57,26 +57,27 @@ class TestXPJConvert(unittest.TestCase):
 
         track = data["tracks"][0]
         instruments = track["program"]["drum"]["instruments"]
-        layer = instruments[0]["layersv"][0]
+        # SP404 pad 1 is top-left; on the MPC that is pad 13 (slot 12)
+        layer = instruments[12]["layersv"][0]
         self.assertEqual(layer["sampleFile"], "A01 - indust - houst kck - AR.wav")
         self.assertEqual(layer["sampleName"], "indust - houst kck - AR")
-        # SP404 bank B pad 1 is MPC bank B pad 1: slot 16
-        self.assertEqual(instruments[16]["layersv"][0]["sampleFile"], "B01 - " + model.banks["B"].pads[1].pad.name + ".wav")
-        self.assertEqual(model.banks["B"].pads[1].slot, 16)
+        # SP404 bank B pad 1 is MPC bank B pad 13: slot 28
+        self.assertEqual(instruments[28]["layersv"][0]["sampleFile"], "B01 - " + model.banks["B"].pads[1].pad.name + ".wav")
+        self.assertEqual(model.banks["B"].pads[1].slot, 28)
         # padNoteMap is left at MPC's default: slot 0 plays note 36
         self.assertEqual(track["program"]["padNoteMap"]["noteForPad"]["value0"], 36)
-        self.assertEqual(model.banks["A"].pads[1].note, 36)
-        self.assertEqual(model.banks["B"].pads[1].note, 52)
+        self.assertEqual(model.banks["A"].pads[1].note, 48)
+        self.assertEqual(model.banks["B"].pads[1].note, 64)
 
     def test_events_on_bank_b_play_bank_b_notes(self):
-        """Verify pattern events on SP404 pad B01 are written with MPC note 52 (slot 16), not bank A's notes."""
+        """Verify pattern events on SP404 pad B01 are written with MPC note 64 (slot 28), not bank A's notes."""
         model = build_model(FIXTURE_DIR)
         pad_b01 = model.banks["B"].pads[1]
         events = [e for s in model.sequences for e in s.events if e.pad_slot is pad_b01]
 
         self.assertTrue(events, "fixture should sequence pad B01")
-        self.assertTrue(all(e.note == 52 for e in events))
-        self.assertTrue(all(e.note == 36 for s in model.sequences for e in s.events
+        self.assertTrue(all(e.note == 64 for e in events))
+        self.assertTrue(all(e.note == 48 for s in model.sequences for e in s.events
                             if e.pad_slot is model.banks["A"].pads[1]))
 
     def test_every_sequenced_pad_has_an_mpc_pad(self):
@@ -118,7 +119,8 @@ class TestXPJConvert(unittest.TestCase):
             model = build_model(source)
 
         instruments = writer.build_project_data(model)["data"]["tracks"][0]["program"]["drum"]["instruments"]
-        pad_a01, pad_a02 = instruments[0], instruments[1]
+        # SP404 pads A01 and A02 are MPC pads 13 and 14 (slots 12 and 13)
+        pad_a01, pad_a02 = instruments[12], instruments[13]
         self.assertEqual(pad_a01["coarseTune"], -5)
         self.assertEqual(pad_a01["fineTune"], 0)
         self.assertEqual(pad_a01["triggerMode"], mapping.TriggerMode.NOTE_ON)

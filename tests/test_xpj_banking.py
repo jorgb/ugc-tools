@@ -23,15 +23,33 @@ def _by_name(pads):
 class TestXPJBanking(unittest.TestCase):
 
     def test_banks_a_to_e_keep_their_position(self):
-        """Verify SP404 banks A-E map straight onto MPC banks A-E, pad for pad."""
+        """Verify SP404 banks A-E map straight onto MPC banks A-E, with the pad rows flipped."""
         pads = [p for letter in "ACE" for p in _bank(letter, 3)]
         banking.allocate(pads, set())
 
         slots = {p.sp404_name: p.slot for p in pads}
-        self.assertEqual(slots["A01"], 0)
-        self.assertEqual(slots["A03"], 2)
-        self.assertEqual(slots["C01"], 32)
-        self.assertEqual(slots["E03"], 66)
+        self.assertEqual(slots["A01"], 12)
+        self.assertEqual(slots["A03"], 14)
+        self.assertEqual(slots["C01"], 44)
+        self.assertEqual(slots["E03"], 78)
+
+    def test_bank_slot_flips_the_rows_and_keeps_the_columns(self):
+        """Verify SP404 pad 1 (top-left) becomes MPC pad 13 (top-left), and so on for the grid."""
+        self.assertEqual([banking.bank_slot(n) for n in range(1, 17)],
+                         [12, 13, 14, 15, 8, 9, 10, 11, 4, 5, 6, 7, 0, 1, 2, 3])
+        self.assertEqual(sorted(banking.bank_slot(n) for n in range(1, 17)), list(range(16)))
+
+    def test_every_pad_sits_in_the_same_grid_spot_as_on_the_sp404(self):
+        """Verify a whole bank lands on the MPC pad in the same row from the top and column."""
+        pads = _bank("B")
+        banking.allocate(pads, set())
+
+        for pad in pads:
+            sp_row, sp_column = divmod(pad.local_number - 1, 4)  # row 0 is the top row
+            bank, index = divmod(pad.slot, banking.PADS_PER_BANK)
+            mpc_row_from_bottom, mpc_column = divmod(index, 4)
+            self.assertEqual(bank, 1)
+            self.assertEqual((3 - mpc_row_from_bottom, mpc_column), (sp_row, sp_column), pad.sp404_name)
 
     def test_played_alternate_bank_takes_the_next_free_mpc_bank(self):
         """Verify a played bank F moves whole into MPC bank F when A-E are all in use."""
@@ -40,7 +58,7 @@ class TestXPJBanking(unittest.TestCase):
         allocation = banking.allocate(pads, {named["F04"]})
 
         self.assertEqual(allocation.bank_map, {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4, "F": 5})
-        self.assertEqual([named[f"F{n:02d}"].slot for n in (1, 4, 16)], [80, 83, 95])
+        self.assertEqual([named[f"F{n:02d}"].slot for n in (1, 4, 16)], [92, 95, 83])
 
     def test_played_alternate_bank_fills_a_gap_left_by_an_empty_bank(self):
         """Verify with bank C empty, a played bank F takes MPC bank C, not F."""
@@ -49,7 +67,7 @@ class TestXPJBanking(unittest.TestCase):
         allocation = banking.allocate(pads, {named["F02"]})
 
         self.assertEqual(allocation.bank_map["F"], 2)
-        self.assertEqual(named["F02"].slot, 2 * 16 + 1)
+        self.assertEqual(named["F02"].slot, 2 * 16 + 13)
 
     def test_alternate_banks_relocate_in_order(self):
         """Verify banks F, G, H, I, J take the free MPC banks in that order."""
@@ -70,7 +88,7 @@ class TestXPJBanking(unittest.TestCase):
         # F, G and H are played too, so they take MPC banks F-H before bank I is placed
         allocation = banking.allocate(pads, {named["F01"], named["G01"], named["H01"], named["I03"]})
 
-        self.assertEqual(named["I03"].slot, 1)  # A02, the first hole
+        self.assertEqual(named["I03"].slot, 0)  # MPC pad A01, the first hole (A01 sits at slot 12)
         self.assertEqual(allocation.moved, [named["I03"]])
         self.assertEqual(allocation.evicted, [])
 
@@ -86,7 +104,8 @@ class TestXPJBanking(unittest.TestCase):
         roomy = [p for letter in "ABDEFGH" for p in _bank(letter)] + _bank("C", 3) + _bank("J", 13)
         named = _by_name(roomy)
         banking.allocate(roomy, {named["F01"], named["G01"], named["H01"]})
-        self.assertEqual([named[f"J{n:02d}"].slot for n in (1, 2, 3, 4)], [35, 36, 37, 38])
+        # C01-C03 sit at slots 44-46, so the first free slots are 32, 33, 34, 35
+        self.assertEqual([named[f"J{n:02d}"].slot for n in (1, 2, 3, 4)], [32, 33, 34, 35])
         self.assertTrue(all(p.slot is not None for p in roomy))
 
     def test_moved_pad_notes_follow_the_new_slot(self):
@@ -95,21 +114,21 @@ class TestXPJBanking(unittest.TestCase):
         named = _by_name(pads)
         banking.allocate(pads, {named["F01"], named["G01"], named["H01"], named["I03"]})
 
-        self.assertEqual(named["I03"].note, mapping.slot_note(1))
-        self.assertEqual(named["I03"].note, 37)
+        self.assertEqual(named["I03"].note, mapping.slot_note(0))
+        self.assertEqual(named["I03"].note, 36)
 
     def test_full_program_evicts_the_highest_unplayed_pad(self):
         """Verify with all 128 slots taken, a played pad displaces the highest pad no pattern plays."""
         pads = [p for letter in "ABCDEFGH" for p in _bank(letter)] + _bank("I")
         named = _by_name(pads)
-        played = {named["F01"], named["G01"], named["H01"], named["H15"], named["I05"]}
+        played = {named["F01"], named["G01"], named["H01"], named["H04"], named["I05"]}
         allocation = banking.allocate(pads, played)
 
-        # H16 (slot 127) is the highest unplayed pad; H15 is played, so it stays
-        self.assertEqual(named["I05"].slot, 127)
-        self.assertEqual(allocation.evicted, [named["H16"]])
-        self.assertIsNone(named["H16"].slot)
-        self.assertEqual(named["H15"].slot, 126)
+        # H04 holds slot 127 but is played, so it stays; H03 (slot 126) is the highest unplayed pad
+        self.assertEqual(named["I05"].slot, 126)
+        self.assertEqual(allocation.evicted, [named["H03"]])
+        self.assertIsNone(named["H03"].slot)
+        self.assertEqual(named["H04"].slot, 127)
 
     def test_eviction_never_touches_a_played_pad(self):
         """Verify pads that patterns play are never evicted, however high their slot."""
@@ -119,7 +138,7 @@ class TestXPJBanking(unittest.TestCase):
         allocation = banking.allocate(pads, played)
 
         self.assertTrue(all(p.slot is not None for p in played))
-        self.assertEqual(allocation.evicted, [named["G16"]])
+        self.assertEqual(allocation.evicted, [named["G04"]])
         self.assertEqual(named["I01"].slot, 111)
 
     def test_error_when_every_pad_is_played_and_nothing_fits(self):

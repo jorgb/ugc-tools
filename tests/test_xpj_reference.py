@@ -4,7 +4,7 @@ import tempfile
 import unittest
 import wave
 
-from convert.xpj import mapping, reader, writer
+from convert.xpj import reader, writer
 from convert.xpj.convert import build_model
 
 # The same 3 samples and 2-bar sequence, made once on an SP404mk2 and once by
@@ -13,9 +13,10 @@ from convert.xpj.convert import build_model
 SP404_DIR = os.path.join("testing", "SP404mk2", "projects", "PRJ7SP404")
 REFERENCE_XPJ = os.path.join("testing", "MPC", "prj7mpc.xpj")
 
-# the MPC project has its samples on pads 13-15 (slots 12-14), the converter
-# puts the SP404's pads 1-3 on slots 0-2
-REFERENCE_SLOT_OFFSET = 12
+# the MPC project has its samples on pads 13-15 (slots 12-14): the top-left
+# of the pad grid, where the SP404's pads 1-3 are, and where the converter
+# puts them
+SAMPLE_SLOTS = (12, 13, 14)
 
 
 def _structure_differences(real, converted, path=""):
@@ -45,10 +46,10 @@ def _value_differences(real, converted, path=""):
     return [] if real == converted else [path]
 
 
-def _drum_events(project, note_offset):
+def _drum_events(project):
     clips = project["data"]["sequences"][0]["value"]["trackClipMaps"][0]
     events = clips[0]["value"]["eventList"]["events"]
-    return [(e["time"], e["note"]["note"] - note_offset, e["note"]["velocity"], e["note"]["probability"])
+    return [(e["time"], e["note"]["note"], e["note"]["velocity"], e["note"]["probability"])
             for e in events]
 
 
@@ -82,9 +83,9 @@ class TestReferenceProject(unittest.TestCase):
         self.assertEqual(differences, [], "\n".join(differences[:20]))
 
     def test_sequence_events_match_real_mpc_project(self):
-        """Verify the identical 2-bar sequence gives the same time/pad/velocity for all 24 events."""
-        real = _drum_events(self.real, REFERENCE_SLOT_OFFSET + mapping.MPC_NOTE_BASE)
-        converted = _drum_events(self.converted, mapping.MPC_NOTE_BASE)
+        """Verify the identical 2-bar sequence gives the same time/note/velocity for all 24 events."""
+        real = _drum_events(self.real)
+        converted = _drum_events(self.converted)
 
         self.assertEqual(len(real), 24)
         self.assertEqual(converted, real)
@@ -105,17 +106,17 @@ class TestReferenceProject(unittest.TestCase):
         # End counts 48 kHz frames where the MPC project's WAVs were resampled to 44.1 kHz
         sample_fields = {".layersv[0].sampleFile", ".layersv[0].sliceInfo.End"}
         # PRJ7SP404's snare (pad A02) has gate on in its PADCONF.BIN, so it converts to
-        # Note Off (1) although the MPC project's pads are all One Shot (0)
-        expected = {0: sample_fields, 1: sample_fields | {".triggerMode"}, 2: sample_fields}
+        # Note On (2) although the MPC project's pads are all One Shot (0)
+        first, second, third = SAMPLE_SLOTS
+        expected = {first: sample_fields, second: sample_fields | {".triggerMode"}, third: sample_fields}
 
         for slot, expected_paths in expected.items():
-            real_instrument = instruments(self.real)[slot + REFERENCE_SLOT_OFFSET]
-            differences = set(_value_differences(real_instrument, instruments(self.converted)[slot]))
+            differences = set(_value_differences(instruments(self.real)[slot], instruments(self.converted)[slot]))
             self.assertEqual(differences, expected_paths, f"slot {slot}")
 
         # every other pad is untouched and identical to a blank real pad
         blank = instruments(self.real)[0]
-        for slot in range(3, 128):
+        for slot in set(range(128)) - set(SAMPLE_SLOTS):
             self.assertEqual(instruments(self.converted)[slot], blank, f"slot {slot}")
 
     def test_sample_end_is_last_frame_of_the_written_wav(self):
@@ -123,7 +124,7 @@ class TestReferenceProject(unittest.TestCase):
         instruments = self.converted["data"]["tracks"][0]["program"]["drum"]["instruments"]
         frames = [slot.sample_info.size for slot in self.model.banks["A"].pads.values()]
 
-        self.assertEqual([i["layersv"][0]["sliceInfo"]["End"] for i in instruments[:3]],
+        self.assertEqual([instruments[slot]["layersv"][0]["sliceInfo"]["End"] for slot in SAMPLE_SLOTS],
                          [f - 1 for f in frames])
 
     def test_every_track_has_a_clip_in_every_sequence(self):

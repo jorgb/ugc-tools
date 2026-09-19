@@ -573,7 +573,8 @@ no separate index bookkeeping needed.
 The drum program has 128 slots; slot `s` plays MIDI note
 `(36 + s) % 128` (`mapping.slot_note`), which pad the SP404 pad lands on is
 decided by `banking.allocate()` (§5.6). MPC pad `A01` is slot 0 (note 36),
-`B01` slot 16 (note 52).
+`B01` slot 16 (note 52); SP404 pad `A01` lands on MPC pad `A13` (slot 12,
+note 48) - see the pad-grid flip in §5.6.
 
 **Corrected 2026-09-19 (section 15):** this section used to say
 `36 + n` and to fill `padNoteMap` for the used slots only. A real MPC
@@ -711,8 +712,22 @@ pad A01, `BANK2-01.SMP` ↔ pad B01).
 The SP404 has 10 banks (A-E, and F-J on a second press of the same five
 buttons): 160 pads. A MPC Sample drum program has 8 banks of 16: 128 pads.
 `convert/xpj/banking.py` (`allocate()`) gives every populated SP404 pad an
-MPC slot 0-127 (`PadSlot.slot`; MPC pad `bank * 16 + n - 1`), with one
-priority: **a pad that any pattern plays must always get a pad**. In order:
+MPC slot 0-127 (`PadSlot.slot`), with one
+priority: **a pad that any pattern plays must always get a pad**.
+
+**Pad grid: the rows are flipped.** The SP404 numbers its 4x4 pads from the
+top-left (1-4 on the top row, 13-16 at the bottom); the MPC numbers them from
+the bottom-left (1-4 at the bottom, 13-16 on top). Copying pad numbers
+straight across mirrored the layout vertically. A whole bank is therefore
+placed by grid position, not number (`banking.bank_slot`): SP404 pad `n`
+takes MPC pad `(3 - row) * 4 + column + 1` of the target bank, where `row`
+and `column` are the SP404 pad's 0-based grid row from the top and column.
+SP404 pad 1 (top-left) is MPC pad 13 (top-left), pad 4 is MPC 16, pad 13 is
+MPC 1. Pattern notes follow the pad's slot, so sequences match the samples,
+and `padNoteMap` stays at MPC's default. The hand-made reference project
+(`testing/MPC/prj7mpc.xpj`) has its three samples on MPC pads 13-15, which is
+this layout. Pads placed one by one (steps 3 and 5 below) take arbitrary free
+slots and are not flipped. In order:
 
 1. **Banks A-E stay where they are** (SP404 A -> MPC A ... E -> E).
 2. **Each of banks F-J that has a played pad moves whole** into the lowest

@@ -9,6 +9,8 @@ from sp404.padconf import BANKS
 
 MPC_BANK_COUNT = 8
 PADS_PER_BANK = 16
+PADS_PER_ROW = 4
+PAD_ROWS = PADS_PER_BANK // PADS_PER_ROW
 MPC_PAD_COUNT = MPC_BANK_COUNT * PADS_PER_BANK
 
 # SP404 banks A-E are the five bank buttons; F-J are the same buttons
@@ -31,12 +33,26 @@ def bank_letter(mpc_bank_index):
     return BANKS[mpc_bank_index]
 
 
+def bank_slot(local_number):
+    """Index (0..15) within an MPC bank of the pad that sits where SP404 pad
+    `local_number` (1..16) sits on the 4x4 grid.
+
+    The SP404 numbers its pads from the top-left, row by row (1-4 on top);
+    the MPC numbers them from the bottom-left (1-4 at the bottom). So the
+    rows are flipped and the columns are kept: SP404 pad 1 (top-left) is MPC
+    pad 13 (top-left), SP404 pad 15 is MPC pad 3, and so on."""
+    row, column = divmod(local_number - 1, PADS_PER_ROW)
+    return (PAD_ROWS - 1 - row) * PADS_PER_ROW + column
+
+
 def allocate(pads, sequenced):
     """Sets pad.slot (0..127, or None) on every pad in `pads`.
 
     `sequenced` is the set of pads that any pattern plays. In order:
 
     1. Banks A-E keep their position (A -> MPC bank A ... E -> MPC bank E).
+       Inside a bank the rows are flipped (see bank_slot), so every pad sits
+       in the same spot of the pad grid as on the SP404.
     2. Each of banks F-J that has a sequenced pad moves whole into the
        lowest MPC bank that is still completely free.
     3. When no whole bank is free, each remaining sequenced pad takes the
@@ -65,7 +81,7 @@ def allocate(pads, sequenced):
 
     def place_whole_bank(letter, bank_pads, mpc_bank):
         for pad in bank_pads:
-            place(pad, mpc_bank * PADS_PER_BANK + pad.local_number - 1)
+            place(pad, mpc_bank * PADS_PER_BANK + bank_slot(pad.local_number))
         allocation.bank_map[letter] = mpc_bank
 
     def take_slot(pad):

@@ -80,28 +80,29 @@ class TestXPJWriter(unittest.TestCase):
         model.add_sequence(sequence)
         model.allocation = banking.allocate(model.pads, sequence.used_pads)
 
-        # H16 held the highest slot (127) and nothing plays it, so I03 takes it
+        # H04 held the highest slot (127) and nothing plays it, so I03 takes it
         self.assertEqual(pads["I03"].slot, 127)
-        self.assertEqual([p.sp404_name for p in model.unmapped_pads], ["H16", "I01"])
+        self.assertEqual([p.sp404_name for p in model.unmapped_pads], ["H04", "I01"])
 
         with tempfile.TemporaryDirectory() as output_dir:
             xpj_path, project_data_dir, _ = writer.write_project(model, output_dir)
             _, project = reader.read_project(xpj_path)
 
             self.assertTrue(os.path.isfile(os.path.join(project_data_dir, "I03 - Kick.wav")))
-            for name in ["H16", "I01"]:
+            for name in ["H04", "I01"]:
                 self.assertTrue(os.path.isfile(os.path.join(project_data_dir, "Unmapped Samples", f"{name} - Kick.wav")))
                 self.assertFalse(os.path.exists(os.path.join(project_data_dir, f"{name} - Kick.wav")))
 
         data = project["data"]
         clip = data["sequences"][0]["value"]["trackClipMaps"][0][0]["value"]
         notes = {e["time"]: e["note"]["note"] for e in clip["eventList"]["events"] if e["time"] < 960}
-        self.assertEqual(notes, {0: 36, 480: 35})  # slot 127 plays note (36 + 127) % 128
+        # A01 sits at slot 12 (note 48); slot 127 plays note (36 + 127) % 128
+        self.assertEqual(notes, {0: 48, 480: 35})
 
         # only the 128 pads with an MPC pad are in the project's sample pool
         paths = [s["path"] for s in data["samples"]]
         self.assertEqual(len(paths), 128)
-        self.assertNotIn("H16 - Kick.wav", paths)
+        self.assertNotIn("H04 - Kick.wav", paths)
         self.assertNotIn("I01 - Kick.wav", paths)
         instruments = data["tracks"][0]["program"]["drum"]["instruments"]
         self.assertEqual(instruments[127]["layersv"][0]["sampleFile"], "I03 - Kick.wav")
