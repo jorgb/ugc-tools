@@ -1,3 +1,8 @@
 To test / convert:
 - Envelope decay is not yet working when releasing gated sample
+  > When you come back to the envelope, the fastest route is a small
+    project saved by the real MPC with one pad's Attack and Release set to
+    values you can read on screen. It would pin down the fade-time scale
+    and whether the ADSR switch for gated pads is right. Ideally it has one
+    Note On pad and one One Shot pad.
 - BPM SYNC (tuning is not accurate)
