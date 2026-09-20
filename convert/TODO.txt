@@ -1,3 +1,87 @@
+## 2026-09-20 - Volume: converted samples are too quiet on the MPC (your plan)
+
+### The problem
+- OUTERSPACE hi-hat (SP404 pad A15) has pad volume 16 and every step at
+  volume 90 (the SP404's default step volume, not chosen). Converted, that is
+  pad level 0.7079 * 16 / 127 = 0.0892 and note velocity 90 / 127 = 0.7087.
+  It sounds far too quiet on the MPC Sample, and most other samples are quieter
+  than on the SP404 too.
+- Measured from the SMP files (peak / RMS in dBFS, pad volume):
+  kick A13 -0.1 / -14.5 (80), snare A14 0.0 / -22.6 (36), hi-hat A15
+  -10.2 / -35.8 (16). A plain linear 16/127 gain would put the hi-hat about
+  24 dB below the kick, so the SP404 cannot be doing that (it sounds fine there).
+- Unknowns, none of them can be read from the files we have:
+  1. How the SP404 turns pad volume (0-127) into gain.
+  2. How it turns step velocity into gain, and whether pad volume also applies
+     to notes played by a pattern (PTN.txt lists "Recorded volume of pad" as
+     never tested).
+  3. On the MPC: is the volume float 0.7079 0 dB (DESIGN.md 5.4 says so) or -3 dB
+     (the MPC format notes say so)? And what curve does note velocity follow
+     (every pad has velocitySensitivity 1.0)?
+- Code to change afterwards: mapping.instrument_volume() and
+  mapping.note_velocity(), the vol row in DESIGN.md 5.4.
+
+### Part A - MPC, about 10 minutes, no recording needed
+1. Open the converted OUTERSPACE on the MPC Sample
+   (testing/MPC/projects/PROJECT_01.xpj works). The SP404 pad rows are flipped:
+   A01 is MPC pad 13, A13 is pad 1, A14 is pad 2, A15 is pad 3.
+2. In the Pad Mixer write down the dB shown for pads 13, 1, 2 and 3. The floats
+   we wrote are 0.7079, 0.446, 0.2007 and 0.0892.
+3. On four other pads set the level by hand to 0 dB, -6 dB, -12 dB and -24 dB,
+   save as testing/MPC/projects/VOLUME_LAW.xpj. I read the floats back with
+   convert/xpj_to_json.py, which gives the exact float <-> dB table.
+Result: tells whether 0.7079 is 0 dB and what dB our other values really are.
+
+### Part B - SP404, the important one, about an hour
+Idea: RESAMPLE records what the SP404 really outputs. Exporting the project
+gives SMP files I can measure with the parser, so no ears or audio interface.
+
+Setup (keep it identical for every recording)
+- One loud, short, clean sample on a source pad (the A13 kick, peak -0.1 dBFS).
+- Pad: one shot, attack 0, release 0, hold 100, pitch 0, BPM sync off, bus FX
+  dry. No effects on, master and bank volume left at their defaults (127).
+- Resample the main output, nothing else.
+
+B1 - pad volume law (pad hit by hand)
+- Turn FIXED VELOCITY on (plays at 127, so velocity is out of the picture).
+- Set the pad volume (Pitch/Speed page) to 127, 96, 64, 32 and 16. For each,
+  hit the pad once and resample onto a new pad. 5 recordings.
+
+B2 - velocity law (pattern)
+- Pad volume 127, FIXED VELOCITY off. Make a pattern with one step and set that
+  step's volume in the microscope to 127, 90, 64 and 32. Play the pattern and
+  resample each. 4 recordings.
+
+B3 - your real case (pattern plus pad volume)
+- Pad volume 16, step volume 90 in a pattern, resample. 1 recording. Compare
+  with B2's 90 (pad volume 127): this shows whether pad volume applies to
+  sequenced notes at all, and how.
+
+Bookkeeping
+- Write which resampled pad is which setting in
+  testing/SP404mk2/volume-law/README.txt (for example "A01 = vol 127, fixed").
+- Export the project to testing/SP404mk2/volume-law/ (PADCONF.BIN, SMPL/, PTN/).
+
+### Part C - MPC audio, only if Part A does not settle it
+Measure the MPC's own curves with its resample: a pad at 0 dB and notes at
+velocity 127, 90, 64 and 32, then the pad level at 0, -6, -12 and -24 dB with
+velocity 127. The WAVs land in the project's _[ProjectData] folder. Save as
+testing/MPC/projects/VOLUME_LAW_AUDIO.xpj.
+
+### Part D - what I do with the results
+1. Measure peak and RMS of every recording relative to the 127/127 reference,
+   and fit the SP404 pad volume law, its velocity law, and how pad volume and
+   step volume combine in a pattern.
+2. Change mapping.instrument_volume() and mapping.note_velocity() (and the pad's
+   velocity sensitivity if needed) so the MPC lands on the same level. Update
+   DESIGN.md 5.4 and the tests with the measured numbers.
+3. Re-convert OUTERSPACE and compare kick / snare / hi-hat balance against the
+   SP404 by resampling both.
+4. Also look at FIXED_VELOCITY pads (A09, A10, B08 in OUTERSPACE): they play at
+   127 on the SP404, but we do not apply it, so they come out too quiet too.
+
+## Later
+
 To test / convert:
 - Envelope decay is not yet working when releasing gated sample
   > When you come back to the envelope, the fastest route is a small
