@@ -6,3 +6,31 @@ To test / convert:
     and whether the ADSR switch for gated pads is right. Ideally it has one
     Note On pad and one One Shot pad.
 - BPM SYNC (tuning is not accurate)
+- Chromatic mode?
+
+Direction: get the SP404 reader/parser right first, then a neutral export,
+then UI. Porting or rewriting is decided later (stay in Python for now).
+Parser (sp404/):
+1. Map the unread bytes of the 172-byte pad record
+   - Diff the testing/SP404mk2/pad-params fixtures against the baseline, one
+     setting at a time. Roll is not parsed yet (padconf.py).
+   - Only about half of the record is decoded; find out what the rest holds.
+2. Settle the per-event chromatic pitch byte (PatternEvent.chromatic_pitch)
+   - Bit 7 is a flag and bits 0-6 a value, 0x8D is the baseline. The units are
+     not confirmed (do not assume semitones). Needs a fixture pattern with
+     known pitches.
+   - Also: a pad's chromatic *mode* is not a field yet, only the voice mode
+     (MONO/LEGATO/POLY).
+3. Tighten the reader
+   - Proper data model and validation, collect problems and report them
+     instead of raising on the first bad byte.
+   - Group notes played on the same tick (TODO in ptn.py).
+   - Round-trip tests against the fixtures.
+4. Neutral export, built from the parser output (before banking.allocate)
+   - Documented JSON with SP404-native values (1920 ticks per bar, raw 0-127
+     envelope, banks A-J) plus what the MPC drops: bus FX, pad link, chop
+     markers, CC events, per-event pitch.
+   - WAV with a smpl chunk, SFZ for the pad mapping, Standard MIDI File for
+     the patterns. Ableton's Drum Rack cannot pitch per note, so pitched pads
+     need their own track (Simpler at root C3).
+5. UI (PySide6), then the port/rewrite question. C# is ruled out.
