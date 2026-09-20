@@ -52,8 +52,9 @@ class TestXPJConvert(unittest.TestCase):
         data = project["data"]
         # one drum track for all banks, then MPC's own fixed submix/output tracks
         self.assertEqual([t["name"] for t in data["tracks"]], ["Drum 001", "Submix 1", "Out 1/2", "Out 3/4"])
-        # patterns sit on their pad (highest is PTN00020 = B04 = index 31), gaps are empty
-        self.assertEqual(len(data["sequences"]), 32)
+        # only the patterns' own sequences are written, each at its pad's index
+        self.assertEqual([entry["key"] for entry in data["sequences"]],
+                         sorted(s.index for s in model.sequences))
         self.assertEqual(len([s for s in model.sequences if s.index is not None]), len(model.sequences))
         self.assertEqual(data["masterTempo"], 90.0)
 
@@ -103,31 +104,41 @@ class TestXPJConvert(unittest.TestCase):
         self.assertEqual(name[12], "PTN00001")
         self.assertEqual(name[0], "PTN00013")
         self.assertEqual(name[3], "PTN00016")  # A16, bottom-right, is MPC pad 4
-        self.assertEqual(name[15], "Sequence 16")  # A04 has no pattern
+        self.assertNotIn(15, name)  # A04 has no pattern, so no sequence lights its pad
         # bank B: B01 is MPC bank B pad 13, B04 is pad 16
         self.assertEqual(name[28], "PTN00017")
         self.assertEqual(name[31], "PTN00020")
-        self.assertEqual([entry["key"] for entry in sequences], list(range(32)))
 
-    def test_gaps_between_patterns_are_empty_sequences(self):
-        """Verify a pad with no pattern gets an empty MPC sequence, named like MPC's own."""
+    def test_pads_with_no_pattern_have_no_sequence(self):
+        """Verify no empty sequence is written for a pad without a pattern (the MPC lights a pad for every sequence)."""
         model = build_model(FIXTURE_DIR)
         data = writer.build_project_data(model)["data"]
-        by_key = {entry["key"]: entry["value"] for entry in data["sequences"]}
+        keys = [entry["key"] for entry in data["sequences"]]
 
         # A10 (PTN00010) has no pattern: index 5
-        self.assertEqual(by_key[5]["name"], "Sequence 06")
-        clips = {c["key"]: c["value"] for c in by_key[5]["trackClipMaps"][0]}
-        self.assertEqual(clips["Drum 001"]["eventList"]["events"], [])
+        self.assertNotIn(5, keys)
+        self.assertEqual(len(keys), len(model.sequences))
 
-    def test_project_opens_on_the_first_sequence_with_a_pattern(self):
-        """Verify currentSequence isn't an empty placeholder, and every track lists every sequence."""
+    def test_sequence_01_is_written_empty_when_no_pattern_sits_on_key_0(self):
+        """Verify the MPC's always-present Sequence 01 is added at key 0, empty, 2 bars like MPC's default."""
+        model = build_model(PROJECT_DIR)  # its one pattern, PTN00001, is MPC sequence 13 (key 12)
+        by_key = {entry["key"]: entry["value"] for entry in writer.build_project_data(model)["data"]["sequences"]}
+
+        self.assertEqual(sorted(by_key), [0, 12])
+        self.assertEqual(by_key[0]["name"], "Sequence 01")
+        self.assertEqual(by_key[0]["lengthBars"], 2)
+        self.assertEqual([len(c["value"]["eventList"]["events"]) for c in by_key[0]["trackClipMaps"][0]],
+                         [0, 0, 0, 0])
+
+    def test_project_opens_on_key_0_and_every_track_lists_every_sequence(self):
+        """Verify currentSequence is key 0 and each track's transport map has one entry per written sequence."""
         model = build_model(FIXTURE_DIR)
         data = writer.build_project_data(model)["data"]
+        keys = [entry["key"] for entry in data["sequences"]]
 
-        self.assertEqual(data["currentSequence"], min(s.index for s in model.sequences))
+        self.assertEqual(data["currentSequence"], 0)
         for entry in data["clipPlayerData"]["trackClipTransportMap"]:
-            self.assertEqual([e["key"] for e in entry["value"]], list(range(32)), entry["key"])
+            self.assertEqual([e["key"] for e in entry["value"]], keys, entry["key"])
 
     def test_events_follow_their_sequence_to_the_new_index(self):
         """Verify the events written into a sequence are that pattern's own."""

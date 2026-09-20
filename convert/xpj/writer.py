@@ -119,22 +119,27 @@ def build_project_data(model):
     data["tracks"].insert(0, track)
 
     # A sequence sits at its own MPC index, which is where its pad is (see
-    # banking.allocate_sequences), so the ones between are empty. An MPC
-    # project always has at least one sequence.
+    # banking.allocate_sequences). Only the patterns' sequences are written,
+    # with gaps in the keys: the MPC lights a pad for every sequence that
+    # exists, so filling the gaps with empty sequences lit every pad. The MPC
+    # saves sparse keys itself (testing/MPC/projects/PROJECT_01.xpj).
     placed = model.placed_sequences
     if any(s.index is None for s in model.sequences) and not model.sequence_allocation:
         raise ValueError("sequences have no MPC index: run banking.allocate_sequences() first")
     by_index = {s.index: s for s in placed}
-    count = max(by_index) + 1 if by_index else 1
-    for index in range(count):
-        sequence_info = by_index.get(index) or SequenceInfo(
-            f"Sequence {index + 1:02d}", data["masterTempo"], 1, 1)
-        data["sequences"].append({"key": index, "value": build_sequence(sequence_info, track["name"])})
-    # open on the first sequence that has something in it
-    template.assign(data, "currentSequence", min(by_index) if by_index else 0)
+    # The MPC always keeps a Sequence 01 at key 0 (2 bars, its default), so
+    # write an empty one there unless a pattern already sits on it.
+    if 0 not in by_index:
+        by_index[0] = SequenceInfo("Sequence 01", data["masterTempo"], 2, 2)
+    keys = sorted(by_index)
+    for index in keys:
+        data["sequences"].append({"key": index, "value": build_sequence(by_index[index], track["name"])})
+    # Key 0 is a valid choice whether MPC reads currentSequence as a key or as
+    # a position in the list (unknown: the sparse list is not in key order).
+    template.assign(data, "currentSequence", 0)
 
     data["clipPlayerData"]["trackClipTransportMap"] = [
-        {"key": name, "value": [{"key": index, "value": 0} for index in range(count)]}
+        {"key": name, "value": [{"key": index, "value": 0} for index in keys]}
         for name in sorted(track["name"] for track in data["tracks"])
     ]
 

@@ -12,7 +12,7 @@ from convert.xpj.convert import build_model
 # hand on a real MPC (see the .txt next to each). The MPC project is known to
 # load, so the converter's output must have exactly its shape.
 SP404_DIR = os.path.join("testing", "SP404mk2", "projects", "PRJ7SP404")
-REFERENCE_XPJ = os.path.join("testing", "MPC", "prj7mpc.xpj")
+REFERENCE_XPJ = os.path.join("testing", "MPC", "projects", "prj7mpc.xpj")
 
 # the MPC project has its samples on pads 13-15 (slots 12-14): the top-left
 # of the pad grid, where the SP404's pads 1-3 are, and where the converter
@@ -54,10 +54,11 @@ def _value_differences(real, converted, path=""):
 def _keep_only_sequence(project, index):
     """A copy of project with just the sequence at `index`, moved to slot 0, so
     its shape can be compared with a project that has a single sequence. The
-    converter fills the sequences around a pattern with empty ones."""
+    converter also writes an empty Sequence 01 at key 0 next to a pattern."""
     project = copy.deepcopy(project)
     data = project["data"]
-    data["sequences"] = [{"key": 0, "value": data["sequences"][index]["value"]}]
+    sequence = next(s for s in data["sequences"] if s["key"] == index)
+    data["sequences"] = [{"key": 0, "value": sequence["value"]}]
     data["currentSequence"] = 0
     for entry in data["clipPlayerData"]["trackClipTransportMap"]:
         entry["value"] = entry["value"][:1]

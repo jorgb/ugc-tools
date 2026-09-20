@@ -606,10 +606,26 @@ A13 is sequence 1. Before this the sequences were packed in file order, so
   bank of 16 that no pattern bank uses (as for sample banks, §5.6); there are
   8 (assumed to match the drum program's 8 pad banks, unverified), and a
   pattern bank that finds none is left out with a warning.
-- Sequences between the placed ones are empty `Sequence NN` sequences (named
-  as MPC names a new one), so the sequence numbers stay contiguous; whether
-  MPC would accept gaps is not known. `currentSequence` is the first one with
-  a pattern.
+- Only the patterns' own sequences are written, each under its own key, so
+  the keys have gaps. **Corrected 2026-09-20:** the sequences between them
+  used to be filled with empty `Sequence NN` ones, and the MPC lights a pad
+  in SEQ mode for every sequence that exists, empty or not - all of bank A
+  was lit for a project with 6 patterns. A converted project with the empty
+  ones deleted on the MPC and saved again
+  (`testing/MPC/projects/PROJECT_01.xpj`) shows the MPC accepts sparse keys
+  (0, 8, 9, 10, 12, 13, 14) and writes them itself.
+- The MPC kept a `Sequence 01` at key 0 (2 bars, 128 BPM, its default) even
+  after the empty ones were deleted, so one is written there, empty, unless a
+  pattern already sits on key 0. Its pad is probably lit (not checked).
+  Whether the MPC would load a project without it is unknown.
+- `currentSequence` is 0. It is unknown whether MPC reads it as a key or as a
+  position in the list (the sparse list is not in key order: 14, 12, 10, 9, 8,
+  13, 0 in the saved file), and 0 is valid either way. The saved file's
+  `clipPlayerData.trackClipTransportMap` had shrunk to key 0 only; ours lists
+  every written key, as before. The old contiguous list loaded, but this
+  sparse one is **not yet verified on the MPC**.
+- The MPC also rewrote the clips' `quantisation` to 240 pulses / swing 0.5;
+  ours are 0 / 0.0 from the reference template. Not investigated.
 
 For each event in the pattern (after the `sp404.ptn` extensions in §3.2):
 
